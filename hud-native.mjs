@@ -130,6 +130,23 @@ function ensureHud() {
   try { spawnSync("powershell", ["-NoProfile", "-Command", wmi], { timeout: 12000, stdio: "ignore" }); } catch { /* ok */ }
 }
 
+// Agenda a abertura da telinha `delaySec` s apos o prompt (via WMI, sobrevive ao fim do hook).
+// Abertura baseada em TEMPO desde o prompt, NAO na cadencia de ferramentas -> nao depende de
+// um PreToolUse disparar no momento certo (robusto p/ tarefas que ficam muito "pensando").
+function scheduleOpen(delaySec) {
+  if (process.platform !== "win32") return;                    // Mac: HUD e fase 2 (Electron)
+  if (existsSync(P("closed"))) return;                          // fechada a mao: respeita
+  const script = join(__dir, "hud-open-delayed.ps1");
+  const inner = `"powershell.exe" -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "${script}" -Dir "${dir}" -Exe "${EXE}" -Sid "${sid}" -Delay ${delaySec}`;
+  const wmi = [
+    `$si=([wmiclass]'Win32_ProcessStartup').CreateInstance();`,
+    `$si.ShowWindow=0;`,
+    `$r=([wmiclass]'Win32_Process').Create('${inner.replace(/'/g, "''")}',$null,$si);`,
+    `exit $r.ReturnValue`,
+  ].join(" ");
+  try { spawnSync("powershell", ["-NoProfile", "-Command", wmi], { timeout: 8000, stdio: "ignore" }); } catch { /* ok */ }
+}
+
 // limpa pastas de sessões ociosas há +24h (mantém hud-sessions enxuto)
 function janitor() {
   try {
@@ -178,6 +195,7 @@ if (ev === "UserPromptSubmit") {
   try { writeFileSync(P("burst.txt"), `${now}\t${now}`); } catch { /* ok */ }  // reinicia o relógio da tarefa
   const txt = String(evt.prompt || "").replace(/\s+/g, " ").trim();
   feed("REQ", txt ? txt.slice(0, 48) : "Novo pedido.");
+  scheduleOpen(Number(process.env.JARVIS_HUD_DELAY || 30));   // abre em ~30s se a tarefa ainda estiver rodando
   process.exit(0);
 }
 
@@ -203,7 +221,7 @@ if (tool === "TaskCreate" || tool === "TaskUpdate" || tool === "TodoWrite") {
 // as pausas de raciocínio e ainda distingue tarefa nova (prompt novo já zera de qualquer jeito).
 let bstart = now, blast = 0;
 try { const b = readFileSync(P("burst.txt"), "utf8").split("\t"); bstart = Number(b[0]) || now; blast = Number(b[1]) || 0; } catch { /* 1a vez */ }
-if (now - blast > 120000) bstart = now;                         // só zera após 2min parado (não a cada "pensada")
+if (now - blast > 900000) bstart = now;                         // só zera após 15min parado (o scheduleOpen já cobre o caso principal)
 try { writeFileSync(P("burst.txt"), `${bstart}\t${now}`); } catch { /* ok */ }
 if (now - bstart >= 30000) ensureHud();                          // tarefa passou de 30s → abre
 process.exit(0);
