@@ -1,0 +1,263 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  :root{
+    --amber:#E8B24A; --bright:#F4C25C; --mut:#BE9E6C; --deep:#8A6A2E;
+    --text:#DCCDAB; --online:#86E3A6; --border:#C9A877; --faint:#6C786E; --red:#E8794C;
+    --ink1:#121F17; --ink2:#070E09;
+    --mono:'Consolas','SF Mono','JetBrains Mono',ui-monospace,monospace;
+    --ui:'Segoe UI','Helvetica Neue',system-ui,sans-serif;
+  }
+  html,body{margin:0;padding:0;background:transparent;overflow:hidden;-webkit-user-select:none;user-select:none;cursor:default}
+  .hud{
+    position:relative;width:380px;height:300px;border-radius:16px;overflow:hidden;
+    background:linear-gradient(150deg,var(--ink1),var(--ink2));
+    border:1.3px solid rgba(201,168,119,.82);
+    box-shadow:0 10px 40px rgba(0,0,0,.5),inset 0 0 60px rgba(232,178,74,.03);
+    color:var(--text);will-change:filter,transform;transform-origin:center center;
+  }
+  .drag{position:absolute;top:0;left:0;right:26px;height:34px;-webkit-app-region:drag}
+  .lbl{font-family:var(--mono);font-size:9px;letter-spacing:.03em;color:var(--faint);text-transform:uppercase}
+  .amber{color:var(--amber)} .deep{color:var(--deep)}
+  /* header */
+  .head{position:absolute;top:11px;left:14px;right:12px;display:flex;align-items:center;justify-content:space-between}
+  .brand{font-family:var(--mono);font-weight:700;font-size:15px;letter-spacing:.02em;color:var(--amber)}
+  .hstat{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:8.5px;font-weight:700}
+  .hago{color:var(--online)} .dot{width:7px;height:7px;border-radius:50%;background:var(--online);box-shadow:0 0 7px currentColor}
+  .stxt{color:var(--online);letter-spacing:.05em}
+  .close{color:var(--faint);font-family:var(--mono);font-size:12px;cursor:pointer;-webkit-app-region:no-drag;padding:0 3px}
+  .close:hover{color:var(--amber)}
+  .sess{position:absolute;top:31px;left:15px;right:14px;font-family:var(--mono);font-size:9px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* reactor */
+  #reactor{position:absolute;left:12px;top:50px;width:80px;height:80px}
+  /* metrics */
+  .m{position:absolute;font-family:var(--mono)}
+  .mv{font-family:var(--mono);font-weight:700;color:var(--amber);line-height:1}
+  #tempoL{left:100px;top:50px}   #tempoV{left:99px;top:59px;font-size:19px}
+  #acoesL{left:100px;top:84px}   #acoesV{left:99px;top:92px;font-size:16px}
+  #acoesU{left:135px;top:103px;font-size:8px;color:var(--deep)}
+  #cargaL{left:210px;top:50px}
+  .bar{position:absolute;left:210px;top:64px;width:112px;height:9px;border-radius:5px;background:rgba(6,11,8,.6);border:1px solid rgba(201,168,119,.28);overflow:hidden}
+  .bar > i{display:block;height:100%;width:0;border-radius:5px;background:linear-gradient(90deg,var(--deep),var(--bright))}
+  #cargaP{left:328px;top:60px;font-size:8.5px;font-weight:700}
+  #cargaS{left:210px;top:75px;font-size:8px;color:var(--deep)}
+  #apmL{left:210px;top:84px}     #apmV{left:209px;top:92px;font-size:16px}
+  #trend{position:absolute;left:238px;top:99px;font-family:var(--mono);font-size:10px}
+  #apmPk{left:252px;top:101px;font-size:8px;color:var(--deep)}
+  /* sparkline */
+  #spark{position:absolute;left:100px;top:115px;width:256px;height:15px;display:flex;align-items:flex-end;gap:2px}
+  #spark > i{flex:1;background:var(--deep);border-radius:1px;min-height:2px}
+  /* feed */
+  .divider{position:absolute;left:16px;right:16px;top:133px;height:1px;background:rgba(201,168,119,.19)}
+  #feedhead{left:15px;top:139px}
+  #eventsC{position:absolute;right:16px;top:140px;font-family:var(--mono);font-size:8px;color:var(--deep)}
+  #feed{position:absolute;left:16px;right:14px;top:157px;font-family:var(--ui);font-size:12px}
+  .frow{display:flex;align-items:center;gap:8px;height:16.5px}
+  .chip{flex:none;width:40px;text-align:center;font-family:var(--mono);font-weight:700;font-size:8px;padding:1.5px 0;border-radius:3px;border:1px solid currentColor}
+  .ftxt{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--mut)}
+  .frow:last-child .ftxt{color:var(--text)}
+  .crtline{position:absolute;left:0;right:0;top:149px;height:3px;background:#DCEEFF;box-shadow:0 0 14px 3px rgba(150,210,245,.9);opacity:0;pointer-events:none}
+</style>
+</head>
+<body>
+<div class="hud" id="hud">
+  <div class="drag"></div>
+  <div class="head">
+    <div class="brand">J.A.R.V.I.S.</div>
+    <div class="hstat"><span class="hago" id="hago"></span><span class="dot" id="dot"></span><span class="stxt" id="stxt">ONLINE</span><span class="close" id="close">×</span></div>
+  </div>
+  <div class="sess" id="sess">// sessao</div>
+  <canvas id="reactor" width="160" height="160"></canvas>
+  <div class="m lbl" id="tempoL">TEMPO DE OP.</div><div class="m mv" id="tempoV">00:00</div>
+  <div class="m lbl" id="acoesL">ACOES</div><div class="m mv" id="acoesV">0</div><div class="m" id="acoesU">ops</div>
+  <div class="m lbl" id="cargaL">CARGA</div>
+  <div class="bar"><i id="barFill"></i></div>
+  <div class="m" id="cargaP" style="color:var(--faint)">0%</div>
+  <div class="m" id="cargaS">em repouso</div>
+  <div class="m lbl" id="apmL">APM</div><div class="m mv" id="apmV" style="color:var(--faint)">0</div>
+  <div id="trend"></div><div class="m" id="apmPk">pico 0</div>
+  <div id="spark"></div>
+  <div class="divider"></div>
+  <div class="m lbl" id="feedhead">// FLUXO DE TELEMETRIA</div>
+  <div id="eventsC">EVENTOS 0000</div>
+  <div id="feed"></div>
+  <div class="crtline" id="crtline"></div>
+</div>
+<script>
+const fs = require('fs'), path = require('path');
+let ipcRenderer = null; try { ipcRenderer = require('electron').ipcRenderer; } catch (e) {}
+const Q = new URLSearchParams(location.search);
+const SID = Q.get('sid') || 'global';
+const DIR = Q.get('dir') || '.';
+const MODE = Q.get('mode') || 'run';
+const SHOTP = parseFloat(Q.get('p') || '0.3');
+const P = (n) => path.join(DIR, n);
+const DONE_CLOSE = 20000, IDLE_CLOSE = 600000, FEEDN = 8, HB = 1000;
+
+// ---- estado ----
+let title = '', startTs = 0, lastFeedTs = 0, feed = [], actions = 0, endShownAt = 0;
+let actTs = [], apm = 0, apmPeak = 0, apmRef = 0, apmHist = new Array(10).fill(0), apmHistIdx = 0;
+let spark = new Array(16).fill(0), load = 0, taskDone = 0, taskTotal = 0;
+let closing = false, bornMs = Date.now();
+const el = (id) => document.getElementById(id);
+
+function readState() {
+  try { const l = fs.readFileSync(P('meta.txt'), 'utf8').split('\n'); title = l[0] || ''; if (l[1]) { const t = Number(l[1].trim()); if (t) startTs = t; } } catch (e) {}
+  try { const p = fs.readFileSync(P('progress.txt'), 'utf8').split('\t'); taskDone = Number(p[0]) || 0; taskTotal = Number(p[1]) || 0; } catch (e) {}
+  try {
+    const raw = fs.readFileSync(P('feed.txt'), 'utf8');
+    const lines = raw.split('\n').filter(s => s.length);
+    feed = []; actTs = []; actions = 0;
+    for (const ln of lines) {
+      const parts = ln.split('\t');
+      const ts = Number(parts[0]) || 0, tag = parts[1] || '--', text = parts.slice(2).join('\t') || ln;
+      feed.push([ts, tag, text]); lastFeedTs = ts; actTs.push(ts); actions++;
+    }
+    if (actTs.length > 300) actTs = actTs.slice(-300);
+    if (feed.length > FEEDN + 2) feed = feed.slice(-(FEEDN + 2));
+  } catch (e) {}
+}
+
+function recompute() {
+  const now = Date.now(); let c60 = 0, c30 = 0; spark = new Array(16).fill(0);
+  for (const t of actTs) { const d = now - t; if (d < 0) continue; if (d <= 60000) c60++; if (d <= 30000) c30++; if (d < 64000) { const i = 15 - Math.floor(d / 4000); if (i >= 0 && i < 16) spark[i]++; } }
+  apm = c60; if (apm > apmPeak) apmPeak = apm; load = Math.min(1, c30 / 8);
+  apmRef = apmHist[apmHistIdx]; apmHist[apmHistIdx] = apm; apmHistIdx = (apmHistIdx + 1) % apmHist.length;
+}
+
+function tagColor(tag) {
+  switch (tag) {
+    case 'EDIT': return 'var(--amber)';
+    case 'EXEC': case 'TEST': case 'AGNT': case 'JVS': case 'REQ': return 'var(--bright)';
+    case 'DPLY': case 'END': return 'var(--red)';
+    case 'GIT': case 'DONE': return 'var(--online)';
+    default: return 'var(--mut)';
+  }
+}
+function agoTxt() { if (lastFeedTs <= 0) return ''; let s = Math.floor((Date.now() - lastFeedTs) / 1000); if (s < 0) s = 0; if (s < 2) return 'agora'; if (s < 60) return 'ha ' + s + 's'; const m = Math.floor(s / 60); return 'ha ' + m + ':' + String(s % 60).padStart(2, '0'); }
+function agoColor() { const s = (Date.now() - lastFeedTs) / 1000; return s < 8 ? 'var(--online)' : s < 30 ? 'var(--mut)' : 'var(--red)'; }
+function elapsed() { if (startTs <= 0) return '00:00'; let s = Math.floor((Date.now() - startTs) / 1000); if (s < 0) s = 0; const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60; return h > 0 ? h + ':' + String(m).padStart(2, '0') + ':' + String(ss).padStart(2, '0') : String(m).padStart(2, '0') + ':' + String(ss).padStart(2, '0'); }
+function fit(s, n) { s = String(s || ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+
+function status() { if (fs.existsSync(P('end'))) return 'ENCERRADO'; return (Date.now() - lastFeedTs < 8000) ? 'OPERANDO' : 'ONLINE'; }
+
+function renderDOM() {
+  const st = status();
+  const sc = st === 'OPERANDO' ? 'var(--amber)' : st === 'ENCERRADO' ? 'var(--faint)' : 'var(--online)';
+  el('stxt').textContent = st; el('stxt').style.color = sc; el('dot').style.background = sc;
+  el('hago').textContent = agoTxt(); el('hago').style.color = agoColor();
+  el('sess').textContent = title ? '// ' + title : '// sessao (CLI)';
+  el('tempoV').textContent = elapsed();
+  el('acoesV').textContent = actions;
+  const hasTasks = taskTotal > 0;
+  el('cargaL').textContent = hasTasks ? 'ATIVIDADE' : 'CARGA';
+  const pct = hasTasks ? (taskTotal ? taskDone / taskTotal : 0) : load;
+  el('barFill').style.width = Math.max(pct > 0 ? 9 : 0, pct * 112) + 'px';
+  el('cargaP').textContent = Math.round(pct * 100) + '%'; el('cargaP').style.color = pct > 0 ? 'var(--amber)' : 'var(--faint)';
+  el('cargaS').textContent = hasTasks ? (taskDone + '/' + taskTotal) : (load > 0.05 ? 'reator ativo' : 'em repouso');
+  el('apmV').textContent = apm; el('apmV').style.color = apm > 0 ? 'var(--amber)' : 'var(--faint)';
+  el('apmPk').textContent = 'pico ' + apmPeak;
+  const tr = apm - apmRef; el('trend').textContent = tr > 0 ? '▲' : tr < 0 ? '▼' : '—'; el('trend').style.color = tr > 0 ? 'var(--online)' : tr < 0 ? 'var(--red)' : 'var(--faint)';
+  // sparkline
+  const sp = el('spark'); if (sp.children.length !== 16) { sp.innerHTML = ''; for (let i = 0; i < 16; i++) sp.appendChild(document.createElement('i')); }
+  let smax = 1; for (const v of spark) if (v > smax) smax = v;
+  for (let i = 0; i < 16; i++) { const v = spark[i], bar = sp.children[i]; bar.style.height = (v <= 0 ? 2 : Math.max(3, (v / smax) * 15)) + 'px'; bar.style.background = v <= 0 ? 'rgba(108,120,110,.45)' : (i === 15 ? 'var(--bright)' : i >= 11 ? 'var(--amber)' : i >= 6 ? 'var(--mut)' : 'var(--deep)'); }
+  el('eventsC').textContent = 'EVENTOS ' + String(actions).padStart(4, '0');
+  // feed
+  const fc = el('feed'); fc.innerHTML = '';
+  const start = Math.max(0, feed.length - FEEDN);
+  if (feed.length === 0) { fc.innerHTML = '<div class="ftxt" style="color:var(--faint)">Aguardando telemetria da sessao...</div>'; }
+  for (let i = start; i < feed.length; i++) {
+    const f = feed[i], col = tagColor(f[1]);
+    const row = document.createElement('div'); row.className = 'frow';
+    const chip = document.createElement('span'); chip.className = 'chip'; chip.style.color = col; chip.textContent = f[1];
+    const tx = document.createElement('span'); tx.className = 'ftxt'; tx.textContent = fit(f[2], 44);
+    row.appendChild(chip); row.appendChild(tx); fc.appendChild(row);
+  }
+}
+
+// ---- reator (canvas, animado) ----
+const rc = el('reactor'), rctx = rc.getContext('2d');
+let t0 = Date.now();
+function drawReactor() {
+  const w = rc.width, h = rc.height, cx = w / 2, cy = h / 2, S = w / 80; // 2x DPR (canvas 160 p/ 80px)
+  const phase = (Date.now() - t0) / 500;
+  const a = phase * 20 * Math.PI / 180, pulse = 0.5 + 0.5 * Math.sin(phase * 2.2);
+  rctx.clearRect(0, 0, w, h); rctx.save(); rctx.scale(S, S); rctx.translate(40, 40);
+  // halo + aros
+  rctx.beginPath(); rctx.arc(0, 0, 24, 0, 7); rctx.fillStyle = 'rgba(244,194,92,.09)'; rctx.fill();
+  rctx.beginPath(); rctx.arc(0, 0, 30, 0, 7); rctx.strokeStyle = 'rgba(232,178,74,.35)'; rctx.lineWidth = 1; rctx.stroke();
+  rctx.beginPath(); rctx.arc(0, 0, 33, 0, 7); rctx.strokeStyle = 'rgba(201,168,119,.14)'; rctx.stroke();
+  // ticks girando
+  rctx.save(); rctx.rotate(a); rctx.strokeStyle = 'rgba(232,178,74,.72)'; rctx.lineWidth = 2;
+  for (let i = 0; i < 12; i++) { const r = i * Math.PI / 6; rctx.beginPath(); rctx.moveTo(Math.cos(r) * 25, Math.sin(r) * 25); rctx.lineTo(Math.cos(r) * 29, Math.sin(r) * 29); rctx.stroke(); } rctx.restore();
+  // anel quebrado contra-girando
+  rctx.save(); rctx.rotate(-a * 1.35); rctx.strokeStyle = 'rgba(244,194,92,.85)'; rctx.lineWidth = 2.3; rctx.lineCap = 'round';
+  rctx.beginPath(); rctx.arc(0, 0, 21, 0.31, 2.34); rctx.stroke(); rctx.beginPath(); rctx.arc(0, 0, 21, 3.46, 5.49); rctx.stroke(); rctx.restore();
+  // raios emanando + respirando
+  rctx.save(); rctx.rotate(a * 0.55); rctx.lineCap = 'round';
+  for (let i = 0; i < 12; i++) { const ang = i * 2 * Math.PI / 12, lng = i % 2 === 0, len = (lng ? 16 : 9.5) + pulse * (lng ? 4.5 : 2.5), al = (lng ? .8 : .5) * (.55 + .45 * pulse); rctx.strokeStyle = 'rgba(' + (lng ? '244,194,92' : '232,178,74') + ',' + al.toFixed(2) + ')'; rctx.lineWidth = lng ? 2.1 : 1.4; rctx.beginPath(); rctx.moveTo(Math.cos(ang) * 3.2, Math.sin(ang) * 3.2); rctx.lineTo(Math.cos(ang) * len, Math.sin(ang) * len); rctx.stroke(); } rctx.restore();
+  // glow radial + core
+  const gr = 13 + pulse * 4.5, g = rctx.createRadialGradient(0, 0, 0, 0, 0, gr); g.addColorStop(0, 'rgba(255,240,205,' + (0.6 + 0.3 * pulse).toFixed(2) + ')'); g.addColorStop(1, 'rgba(232,178,74,0)'); rctx.fillStyle = g; rctx.beginPath(); rctx.arc(0, 0, gr, 0, 7); rctx.fill();
+  const pr = 4.6 + pulse * 1.7; rctx.fillStyle = '#E8B24A'; rctx.beginPath(); rctx.arc(0, 0, pr, 0, 7); rctx.fill();
+  rctx.fillStyle = '#FFF8E8'; rctx.beginPath(); rctx.arc(0, 0, 2.2, 0, 7); rctx.fill();
+  rctx.restore();
+  if (!closing || shutP < 0.42) requestAnimationFrame(drawReactor);
+}
+
+// ---- desligamento (esfria + colapso CRT), dirigido por JS p/ casar com o QA ----
+function ease(t) { return t * t * (3 - 2 * t); }
+function coldFilter(t) { return 'grayscale(' + (.65 * t).toFixed(3) + ') sepia(' + (.55 * t).toFixed(3) + ') hue-rotate(' + Math.round(185 * t) + 'deg) contrast(' + (1 - .12 * t).toFixed(3) + ')'; }
+let shutP = 0;
+function shutdownFrame(p) {
+  shutP = p = Math.max(0, Math.min(1, p));
+  const hud = el('hud'), crt = el('crtline'); let filter = '', tf = 'scaleY(1)', line = 0;
+  if (p < 0.44) { const t = ease(p / 0.44); filter = coldFilter(t) + ' brightness(' + (1 - .5 * t).toFixed(3) + ')'; }
+  else if (p < 0.80) { const t = (p - 0.44) / 0.36, sy = Math.max(0.02, 1 - t * t); filter = coldFilter(1) + ' brightness(' + (.5 + .95 * t).toFixed(3) + ')'; tf = 'scaleY(' + sy.toFixed(3) + ')'; line = t; }
+  else if (p < 0.93) { const t = (p - 0.80) / 0.13, sx = Math.max(0.01, 1 - t * t); filter = coldFilter(1) + ' brightness(1.5)'; tf = 'scaleY(0.02) scaleX(' + sx.toFixed(3) + ')'; line = 1 - t; }
+  else { const t = (p - 0.93) / 0.07; filter = 'brightness(2)'; tf = 'scaleY(0.02) scaleX(0.02)'; hud.style.opacity = (1 - t).toFixed(2); }
+  hud.style.filter = filter; hud.style.transform = tf; crt.style.opacity = line.toFixed(2);
+}
+function beginShutdown() {
+  if (closing) return; closing = true; const start = Date.now(), DUR = 1500;
+  (function step() { const p = (Date.now() - start) / DUR; shutdownFrame(Math.min(1, p)); if (p >= 1) { try { ipcRenderer && ipcRenderer.send('hud-close'); } catch (e) {} return; } requestAnimationFrame(step); })();
+}
+
+// ---- tick de dados + ciclo de vida (1x/s) ----
+function beat() { try { fs.writeFileSync(P('hb'), String(Date.now())); } catch (e) {} }
+function tick() {
+  if (closing) return;
+  readState(); recompute(); renderDOM(); beat();
+  if (fs.existsSync(P('closed'))) { try { ipcRenderer && ipcRenderer.send('hud-close'); } catch (e) {} return; }
+  if (fs.existsSync(P('end'))) { if (!endShownAt) endShownAt = Date.now(); if (Date.now() - endShownAt > 20000) return beginShutdown(); }
+  else { try { const d = fs.readFileSync(P('done'), 'utf8').trim(); const dt = Number(d); if (dt && Date.now() - dt > DONE_CLOSE) return beginShutdown(); } catch (e) {} }
+  if (!fs.existsSync(P('end')) && Date.now() - Math.max(lastFeedTs, bornMs) > IDLE_CLOSE) return beginShutdown();
+  try { fs.statSync(DIR); } catch (e) { return beginShutdown(); }
+}
+
+// ---- seed p/ QA (--shot) ----
+function seed() {
+  title = 'Claude Code'; startTs = Date.now() - (7 * 60 + 23) * 1000;
+  const now = Date.now(); const off = [12, 9, 6.5, 4.2, 1.1];
+  const tags = [['REQ', 'Deixar o HUD do Jarvis melhor'], ['READ', 'Lendo main.js'], ['EDIT', 'Editando index.html'], ['EXEC', 'npm install electron'], ['JVS', 'Renderizando com as especificacoes, senhor.']];
+  feed = []; actTs = []; actions = 0;
+  const bigOff = [1, 3, 4, 7, 9, 12, 15, 19, 24, 30, 38, 47, 58];
+  for (const o of bigOff) { actTs.push(now - o * 1000); actions++; }
+  for (let i = 0; i < tags.length; i++) { feed.push([now - off[i] * 1000, tags[i][0], tags[i][1]]); }
+  lastFeedTs = now - 1100; recompute();
+}
+
+// ---- boot ----
+el('close').addEventListener('click', () => { try { fs.writeFileSync(P('closed'), '1'); } catch (e) {} try { ipcRenderer && ipcRenderer.send('hud-close'); } catch (e) {} });
+drawReactor();
+if (MODE === 'shot' || MODE === 'shotshut') {
+  seed(); renderDOM();
+  if (MODE === 'shotshut') { shutdownFrame(SHOTP); }
+} else {
+  tick(); setInterval(tick, HB);
+}
+</script>
+</body>
+</html>

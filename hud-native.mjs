@@ -10,11 +10,12 @@
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, rmSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
-import { spawnSync } from "child_process";
+import { spawnSync, spawn } from "child_process";
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dir, "hud-sessions");
-const EXE = join(__dir, "hud-native", "jarvis-hud-wf.exe");
+const EXE = join(__dir, "hud-native", "jarvis-hud-wf.exe");        // telinha nativa (Windows)
+const ELECTRON_DIR = join(__dir, "hud-electron");                  // telinha cross-platform (macOS)
 const HB_STALE = 6000;
 
 async function readStdin() {
@@ -117,9 +118,15 @@ function updateProgress(tool, inp) {
 
 // ---- garante a janela viva (via WMI, oculto, sobrevive ao fim do hook) ----
 function ensureHud() {
-  if (process.platform !== "win32") return;   // telinha NATIVA = só Windows (Mac ganha o HUD Electron na fase 2)
   if (existsSync(P("closed"))) return;      // fechada à mão: respeita
   if (fresh("hb")) return;                    // já viva
+  if (process.platform === "darwin") {        // macOS: telinha Electron (spawn destacado sobrevive)
+    const bin = join(ELECTRON_DIR, "node_modules", ".bin", "electron");
+    if (!existsSync(bin)) return;             // Mac precisa ter rodado `npm install` em hud-electron/
+    try { const c = spawn(bin, [ELECTRON_DIR, sid], { detached: true, stdio: "ignore" }); c.unref(); } catch { /* ok */ }
+    return;
+  }
+  if (process.platform !== "win32") return;   // outras plataformas: sem telinha por ora
   const cmd = `"${EXE}" "${sid}"`;
   const wmi = [
     `$si=([wmiclass]'Win32_ProcessStartup').CreateInstance();`,
@@ -134,8 +141,12 @@ function ensureHud() {
 // Abertura baseada em TEMPO desde o prompt, NAO na cadencia de ferramentas -> nao depende de
 // um PreToolUse disparar no momento certo (robusto p/ tarefas que ficam muito "pensando").
 function scheduleOpen(delaySec) {
-  if (process.platform !== "win32") return;                    // Mac: HUD e fase 2 (Electron)
   if (existsSync(P("closed"))) return;                          // fechada a mao: respeita
+  if (process.platform === "darwin") {                          // macOS: agenda via node (detached sobrevive)
+    try { const c = spawn(process.execPath, [join(__dir, "mac-hud-open.mjs"), dir, sid, String(delaySec)], { detached: true, stdio: "ignore" }); c.unref(); } catch { /* ok */ }
+    return;
+  }
+  if (process.platform !== "win32") return;
   const script = join(__dir, "hud-open-delayed.ps1");
   const inner = `"powershell.exe" -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "${script}" -Dir "${dir}" -Exe "${EXE}" -Sid "${sid}" -Delay ${delaySec}`;
   const wmi = [

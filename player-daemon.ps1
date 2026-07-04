@@ -33,13 +33,11 @@ function Now-Ms { return [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
 
 # Toca prefixo (opcional) + fala principal EMENDADOS (pre-carga paralela, sem gap interno).
 function Play-Item([string]$prefixFile, [string]$mainFile) {
-  # blip robótico de notificação (lead-in), tocado antes de tudo se o arquivo existir
+  # blip robotico (lead-in). WAV curto -> System.Media.SoundPlayer.PlaySync (confiavel e
+  # sincrono). O WPF MediaPlayer NAO carregava o WAV em 250ms (NaturalDuration vazia) e o
+  # blip nao tocava (bug 04/07). SoundPlayer bloqueia ate o blip terminar; a voz vem logo apos.
   if ($BlipFile -and (Test-Path $BlipFile)) {
-    $blip = New-Object System.Windows.Media.MediaPlayer
-    $blip.Open([System.Uri]$BlipFile)
-    Start-Sleep -Milliseconds 250
-    $bd = 0.4; if ($blip.NaturalDuration.HasTimeSpan) { $bd = $blip.NaturalDuration.TimeSpan.TotalSeconds }
-    $blip.Play(); Start-Sleep -Milliseconds ([int]($bd * 1000) + 120); $blip.Stop(); $blip.Close()
+    try { $sp = New-Object System.Media.SoundPlayer $BlipFile; $sp.PlaySync(); $sp.Dispose() } catch {}
   }
   $main = New-Object System.Windows.Media.MediaPlayer
   $main.Open([System.Uri]$mainFile)

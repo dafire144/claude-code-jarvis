@@ -1,0 +1,9 @@
+{
+  "name": "jarvis-hud",
+  "version": "1.0.0",
+  "description": "Cross-platform J.A.R.V.I.S. HUD for Claude Code (Electron) — usado no macOS; no Windows a versao nativa (.exe) e usada.",
+  "main": "main.js",
+  "private": true,
+  "scripts": { "start": "electron ." },
+  "devDependencies": { "electron": "^31.7.0" }
+}

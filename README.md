@@ -30,16 +30,16 @@ It hooks into Claude Code's event system (no polling, no cost) and reacts with p
 | Butler voice | yes | yes |
 | Native notifications | yes (WinRT toast) | yes (osascript) |
 | Robotic blip | yes | yes |
-| Live desktop HUD + power-down animation | yes (native) | coming (Electron) |
+| Live desktop HUD + power-down animation | yes (native) | yes (Electron) |
 | Status line | yes | yes |
 
-The desktop HUD is currently a native **WinForms/GDI+** app (Windows-only). A cross-platform **Electron** rewrite so macOS gets the same window is on the roadmap — see below. On macOS you get the full voice + notification experience today.
+The desktop HUD ships two ways for the best of both worlds: a lightweight **native WinForms/GDI+** app on Windows, and a **cross-platform Electron** build on macOS — same reactor core, telemetry feed and cinematic power-down. Everyone gets the same experience.
 
 ## Requirements
 
 - [Claude Code](https://claude.com/claude-code) and **Node.js** (any recent version).
 - **Windows:** .NET Framework (ships with Windows) for the prebuilt HUD `.exe`; PowerShell (built-in) for audio + toasts.
-- **macOS:** `afplay` and `osascript` (both built into macOS).
+- **macOS:** `afplay` and `osascript` (built in). For the desktop HUD, run `npm install` once inside `hud-electron/` (pulls Electron).
 
 No API keys. No servers. No paid dependencies.
 
@@ -77,7 +77,7 @@ The 315 `.mp3` clips in [`clips/`](clips/) are pre-generated (ElevenLabs). This 
 
 ## Roadmap
 
-- **Cross-platform HUD (Electron)** — port the reactor-core rendering + shutdown animation to Canvas so macOS/Linux get the same live window.
+- **Linux HUD** — the Electron HUD should run on Linux too; needs testing.
 - Optional English voice pack.
 - One-command installer that wires the hooks for you.
 
