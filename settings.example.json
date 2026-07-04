@@ -1,0 +1,52 @@
+{
+  "_comment": "Bloco de hooks do J.A.R.V.I.S. para o Claude Code. Cole o conteudo de \"hooks\" no seu ~/.claude/settings.json (faca merge se ja tiver hooks). TROQUE __JARVIS_DIR__ pelo caminho absoluto da pasta (ex.: Windows C:/Users/voce/.claude/jarvis  |  Mac /Users/voce/.claude/jarvis). Use barras normais / mesmo no Windows.",
+  "hooks": {
+    "Stop": [
+      { "hooks": [
+        { "type": "command", "command": "node __JARVIS_DIR__/jarvis-notify.mjs stop" },
+        { "type": "command", "command": "node __JARVIS_DIR__/hud-native.mjs" }
+      ] }
+    ],
+    "Notification": [
+      { "hooks": [ { "type": "command", "command": "node __JARVIS_DIR__/jarvis-notify.mjs notify" } ] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [
+        { "type": "command", "command": "node __JARVIS_DIR__/jarvis-notify.mjs prompt" },
+        { "type": "command", "command": "node __JARVIS_DIR__/hud-native.mjs" }
+      ] }
+    ],
+    "PreToolUse": [
+      { "matcher": "Agent|Task|Workflow", "hooks": [
+        { "type": "command", "command": "node __JARVIS_DIR__/jarvis-notify.mjs fanout" },
+        { "type": "command", "command": "node __JARVIS_DIR__/hud-launch.mjs" }
+      ] },
+      { "matcher": "Write|Edit|NotebookEdit", "hooks": [ { "type": "command", "command": "node __JARVIS_DIR__/jarvis-notify.mjs code" } ] },
+      { "matcher": "Bash|PowerShell", "hooks": [
+        { "type": "command", "command": "node __JARVIS_DIR__/jarvis-notify.mjs terminal" },
+        { "type": "command", "command": "node __JARVIS_DIR__/hud-launch.mjs" }
+      ] },
+      { "matcher": "WebSearch|WebFetch", "hooks": [ { "type": "command", "command": "node __JARVIS_DIR__/jarvis-notify.mjs search" } ] },
+      { "matcher": "Grep|Glob", "hooks": [ { "type": "command", "command": "node __JARVIS_DIR__/jarvis-notify.mjs files" } ] },
+      { "matcher": "Task|Agent|Workflow|Bash|PowerShell|Write|Edit|NotebookEdit|Read|Grep|Glob|WebSearch|WebFetch|TodoWrite|TaskCreate|TaskUpdate", "hooks": [ { "type": "command", "command": "node __JARVIS_DIR__/hud-native.mjs" } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Agent|Task|Workflow", "hooks": [ { "type": "command", "command": "node __JARVIS_DIR__/hud-close.mjs" } ] }
+    ],
+    "SubagentStop": [
+      { "hooks": [ { "type": "command", "command": "node __JARVIS_DIR__/jarvis-notify.mjs subagent" } ] }
+    ],
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "node __JARVIS_DIR__/jarvis-notify.mjs sessionstart" } ] }
+    ],
+    "SessionEnd": [
+      { "hooks": [
+        { "type": "command", "command": "node __JARVIS_DIR__/jarvis-notify.mjs sessionend" },
+        { "type": "command", "command": "node __JARVIS_DIR__/hud-native.mjs" }
+      ] }
+    ],
+    "PreCompact": [
+      { "hooks": [ { "type": "command", "command": "node __JARVIS_DIR__/jarvis-notify.mjs compact" } ] }
+    ]
+  }
+}

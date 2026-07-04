@@ -1,0 +1,31 @@
+# --- Segredos (NUNCA commitar) ---
+.env
+*.key
+*_SEGREDOS*
+secrets*.json
+
+# --- Estado de runtime (gerado durante o uso) ---
+.titles.json
+.cooldowns.json
+.last-line.json
+.last-session
+.last-sessionstart
+.last-sessionend
+.last-activity
+.last-play
+.usage-state.json
+.usdbrl.json
+*.log
+
+# --- Pastas de trabalho geradas ---
+queue/
+hud-sessions/
+mission/
+.slots/
+clips/prefix/
+
+# --- SO / build ---
+.DS_Store
+Thumbs.db
+*.pdb
+node_modules/
