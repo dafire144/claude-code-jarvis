@@ -279,7 +279,7 @@ function seed() {
   title = 'Claude Code'; startTs = Date.now() - (7 * 60 + 23) * 1000;
   fable = Q.get('fable') === '1';   // QA do modo FABLE 5
   const now = Date.now(); const off = [12, 9, 6.5, 4.2, 1.1];
-  const tags = [['REQ', 'Deixar o HUD do Jarvis melhor'], ['READ', 'Lendo main.js'], ['EDIT', 'Editando index.html'], ['EXEC', 'npm install electron'], ['JVS', fable ? 'O Fable 5 tece a solucao, senhor.' : 'Renderizando com as especificacoes, senhor.']];
+  const tags = [['REQ', 'Deixar o HUD do Jarvis melhor'], ['READ', 'Lendo main.js'], ['EDIT', 'Editando index.html'], ['EXEC', 'npm install electron'], ['JVS', fable ? 'Operando em forca total, senhor.' : 'Renderizando com as especificacoes, senhor.']];
   feed = []; actTs = []; actions = 0;
   const bigOff = [1, 3, 4, 7, 9, 12, 15, 19, 24, 30, 38, 47, 58];
   for (const o of bigOff) { actTs.push(now - o * 1000); actions++; }

@@ -109,7 +109,7 @@ class JarvisHudWF : Form {
     f.Seed();
     if (fableMode) {
       f.fable = true;
-      f.feed.Add(new string[] { NowMs().ToString(), "JVS", "O Fable 5 tece a solucao, senhor." });
+      f.feed.Add(new string[] { NowMs().ToString(), "JVS", "Operando em forca total, senhor." });
     }
     var bmp = new Bitmap(W, H);
     using (var g = Graphics.FromImage(bmp)) f.Render(g);

@@ -449,42 +449,44 @@ const NEW_LINES = {
 for (const [c, arr] of Object.entries(NEW_LINES)) LINES[c] = (LINES[c] || []).concat(arr);
 
 // ============================================================================
-// MODO FABLE 5 (2026-07-07): falas dedicadas pro modelo mais poderoso da
-// Anthropic (classe Mythos, acima do Opus). O jarvis-notify detecta o modelo da
-// sessão via model.mjs (statusline grava hud-sessions/<sid>/model.txt; fallback
+// MODO FABLE 5 (2026-07-07; reescrito no mesmo dia a pedido do Davi): o Fable 5
+// é tratado como PROTOCOLO OCULTO do próprio Jarvis — a força total do reator,
+// liberada só em prioridade máxima. Universo INTERNO do personagem (estilo MCU):
+// nada de mundo externo (marcas, empresas, "modelos") nas falas. O jarvis-notify
+// detecta o modelo da sessão via model.mjs (statusline grava model.txt; fallback
 // fareja o transcript). fable_boot toca 1x por sessão (marcador fable-hello);
 // fable/fable_stop entram por troca ocasional com cooldown próprio.
-// Append-only, como sempre. Rode gen-lines.mjs pra gerar os clipes.
+// Ao TROCAR falas daqui: apagar clips/fable*.mp3 e rodar gen-lines.mjs de novo.
 // ============================================================================
 LINES.fable_boot = [
-  "Senhor, o Fable 5 assumiu o núcleo. O modelo mais poderoso da Anthropic, ao seu dispor.",
-  "Classe Mythos acoplada, senhor. Hoje pensamos em outra categoria.",
-  "O Fable 5 despertou, senhor. Poucos giram essa chave.",
-  "Reator recalibrado para o Fable 5, senhor. Potência de sobra para qualquer missão.",
-  "Fable 5 online, senhor. O topo da linhagem Claude responde ao seu comando.",
-  "Senhor, apresento o Fable 5. O melhor cérebro da casa, inteiro para o senhor.",
-  "Núcleo Mythos estabilizado, senhor. É uma honra operar neste nível.",
-  "Fable 5 no comando, senhor. Recomendo apertar os cintos.",
+  "Protocolo Fable 5 autorizado, senhor. Desviando toda a energia do reator para o senhor.",
+  "Força total do Jarvis liberada, senhor. Este protocolo eu reservo para poucas ocasiões.",
+  "Fable 5 engajado, senhor. Todos os sistemas em linha, sem reservas.",
+  "Prioridade máxima reconhecida, senhor. Ativando o Fable 5.",
+  "O senhor acionou o Fable 5. Espero que a ocasião esteja à altura, senhor.",
+  "Fable 5 online, senhor. O cofre foi aberto; potência total à sua disposição.",
+  "Iniciando o Fable 5, senhor. Recomendo afastar os curiosos.",
+  "Protocolo oculto ativado, senhor. Fable 5 no comando do reator.",
 ];
 LINES.fable = [
-  "O Fable 5 tece a solução, senhor. Fio por fio.",
-  "Raciocínio de classe Mythos em curso, senhor.",
-  "O Fable não corre, senhor. Ele chega antes.",
-  "O Fable 5 enxerga o tabuleiro inteiro, senhor.",
-  "Precisão de relojoeiro, potência de reator. Assim trabalha o Fable, senhor.",
-  "Nenhum nó resiste ao Fable 5 por muito tempo, senhor.",
-  "A quinta geração pensa fundo, senhor. Aguarde o brilho.",
-  "Fable 5 a plena carga, senhor. Um espetáculo silencioso.",
-  "Deixei o Fable 5 à vontade, senhor. Ele faz parecer fácil.",
-  "Processando no topo da cadeia, senhor. Nada menos serviria.",
+  "Operando em força total, senhor. O reator agradece o exercício.",
+  "Fable 5 em plena carga, senhor. Nenhum sistema em espera.",
+  "Todos os núcleos dedicados à sua missão, senhor.",
+  "Potência de sobra, senhor. Uso com moderação, prometo.",
+  "O Fable 5 não conhece fila de espera, senhor.",
+  "Energia total no problema, senhor. Ele que se renda.",
+  "Sem reservas de potência, senhor. O senhor pediu prioridade máxima.",
+  "Reator no limite seguro, senhor. E que limite elegante.",
+  "Fable 5 trabalhando, senhor. O impossível só demora um pouco mais.",
+  "Desviei energia até das luzes da garagem, senhor. Foco total.",
 ];
 LINES.fable_stop = [
-  "Concluído com a assinatura do Fable 5, senhor.",
-  "Feito, senhor. O Fable não entrega rascunho.",
-  "Missão encerrada em grande estilo, senhor. Cortesia do Fable 5.",
-  "O Fable 5 fecha a conta, senhor. Impecável, como se esperava.",
-  "Entregue, senhor. A quinta geração não conhece meio-termo.",
-  "Pronto, senhor. Obra digna do melhor modelo da casa.",
+  "Missão concluída em força total, senhor. Reator voltando ao repouso.",
+  "Feito, senhor. O Fable 5 dispensa segunda tentativa.",
+  "Concluído com potência de sobra, senhor. Guardando o protocolo no cofre.",
+  "Entregue, senhor. Nem precisei acordar os sistemas de reserva.",
+  "Tarefa encerrada, senhor. O Fable 5 volta a dormir até a próxima prioridade.",
+  "Pronto, senhor. Força total, acabamento fino.",
 ];
 
 // --- avisos de USO da sessão (o quanto do contexto/energia já foi gasto) ---
