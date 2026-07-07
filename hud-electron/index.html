@@ -26,6 +26,7 @@
   .brand{font-family:var(--mono);font-weight:700;font-size:15px;letter-spacing:.02em;color:var(--amber)}
   .hstat{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:8.5px;font-weight:700}
   .hago{color:var(--online)} .dot{width:7px;height:7px;border-radius:50%;background:var(--online);box-shadow:0 0 7px currentColor}
+  .pill{display:flex;align-items:center;gap:6px;padding:2.5px 8px;border-radius:8px;border:1px solid transparent}
   .stxt{color:var(--online);letter-spacing:.05em}
   .close{color:var(--faint);font-family:var(--mono);font-size:12px;cursor:pointer;-webkit-app-region:no-drag;padding:0 3px}
   .close:hover{color:var(--amber)}
@@ -41,6 +42,19 @@
     100%{border-color:rgba(255,122,60,.95);box-shadow:0 10px 40px rgba(0,0,0,.5),0 0 30px rgba(255,122,60,.30),inset 0 0 60px rgba(255,122,60,.07)}
   }
   .sess{position:absolute;top:31px;left:15px;right:14px;font-family:var(--mono);font-size:9px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #mtag{position:absolute;top:33px;right:14px;font-family:var(--mono);font-size:8px;color:var(--faint);letter-spacing:.05em}
+  /* acabamento holografico: grade blueprint (fundo) + vidro com scanlines e vinheta (topo) */
+  .grid{position:absolute;inset:0;border-radius:16px;pointer-events:none;background:
+    repeating-linear-gradient(90deg,rgba(201,168,119,.035) 0 1px,transparent 1px 32px),
+    repeating-linear-gradient(0deg,rgba(201,168,119,.035) 0 1px,transparent 1px 32px)}
+  .glass{position:absolute;inset:0;border-radius:16px;pointer-events:none;z-index:8;background:
+    radial-gradient(135% 120% at 50% 42%,rgba(0,0,0,0) 55%,rgba(0,0,0,.26) 100%),
+    repeating-linear-gradient(0deg,rgba(0,0,0,.05) 0 1px,transparent 1px 3px)}
+  .corner{position:absolute;width:22px;height:22px;z-index:7;pointer-events:none;border:1.3px solid rgba(201,168,119,.32)}
+  #c1{left:5px;top:5px;border-right:none;border-bottom:none;border-top-left-radius:13px}
+  #c2{right:5px;top:5px;border-left:none;border-bottom:none;border-top-right-radius:13px}
+  #c3{right:5px;bottom:5px;border-left:none;border-top:none;border-bottom-right-radius:13px}
+  #c4{left:5px;bottom:5px;border-right:none;border-top:none;border-bottom-left-radius:13px}
   /* reactor */
   #reactor{position:absolute;left:12px;top:50px;width:80px;height:80px}
   /* metrics */
@@ -52,6 +66,8 @@
   #cargaL{left:210px;top:50px}
   .bar{position:absolute;left:210px;top:64px;width:112px;height:9px;border-radius:5px;background:rgba(6,11,8,.6);border:1px solid rgba(201,168,119,.28);overflow:hidden}
   .bar > i{display:block;height:100%;width:0;border-radius:5px;background:linear-gradient(90deg,var(--deep),var(--bright))}
+  .bar::after{content:'';position:absolute;left:1px;right:1px;top:1px;height:45%;border-radius:4px;background:rgba(255,255,255,.09)}
+  #peak{position:absolute;top:62px;width:2px;height:13px;background:var(--bright);box-shadow:0 0 6px rgba(244,194,92,.85);opacity:0;z-index:2}
   #cargaP{left:328px;top:60px;font-size:8.5px;font-weight:700}
   #cargaS{left:210px;top:75px;font-size:8px;color:var(--deep)}
   #apmL{left:210px;top:84px}     #apmV{left:209px;top:92px;font-size:16px}
@@ -65,21 +81,34 @@
   #feedhead{left:15px;top:139px}
   #eventsC{position:absolute;right:16px;top:140px;font-family:var(--mono);font-size:8px;color:var(--deep)}
   #feed{position:absolute;left:16px;right:14px;top:157px;font-family:var(--ui);font-size:12px}
-  .frow{display:flex;align-items:center;gap:8px;height:16.5px}
-  .chip{flex:none;width:40px;text-align:center;font-family:var(--mono);font-weight:700;font-size:8px;padding:1.5px 0;border-radius:3px;border:1px solid currentColor}
+  .frow{position:relative;display:flex;align-items:center;gap:8px;height:16.5px}
+  .chip{flex:none;width:40px;text-align:center;font-family:var(--mono);font-weight:700;font-size:8px;padding:1.5px 0;border-radius:3px;border:1px solid currentColor;background:rgba(255,255,255,.045)}
   .ftxt{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--mut)}
   .frow:last-child .ftxt{color:var(--text)}
-  .crtline{position:absolute;left:0;right:0;top:149px;height:3px;background:#DCEEFF;box-shadow:0 0 14px 3px rgba(150,210,245,.9);opacity:0;pointer-events:none}
+  .acc{position:absolute;left:-9px;top:2px;width:2px;height:12px;background:var(--bright);box-shadow:0 0 5px rgba(244,194,92,.6)}
+  .crtline{position:absolute;left:0;right:0;top:149px;height:3px;background:#DCEEFF;box-shadow:0 0 14px 3px rgba(150,210,245,.9);opacity:0;pointer-events:none;z-index:12}
+  /* IGNICAO (boot): fisga de luz + linha CRT quentes fora do .hud; flare e letreiro dentro */
+  #bdot{position:absolute;left:184px;top:144px;width:12px;height:12px;border-radius:50%;background:#FFF4D6;box-shadow:0 0 22px 8px rgba(244,194,92,.8);display:none;z-index:40}
+  #bline{position:absolute;left:0;right:0;top:148.5px;height:3px;background:#FFF4D6;box-shadow:0 0 16px 4px rgba(232,178,74,.85);opacity:0;z-index:40;transform-origin:center}
+  #bootflare{position:absolute;left:12px;top:50px;width:80px;height:80px;border-radius:50%;pointer-events:none;z-index:9;opacity:0;background:radial-gradient(circle,rgba(255,244,214,.85) 0%,rgba(244,194,92,.45) 45%,rgba(244,194,92,0) 72%)}
+  #boottext{position:absolute;left:15px;bottom:14px;font-family:var(--mono);font-size:9px;color:var(--mut);opacity:0;z-index:14}
 </style>
 </head>
 <body>
 <div class="hud" id="hud">
+  <div class="grid"></div>
   <div class="drag"></div>
   <div class="head">
     <div class="brand">J.A.R.V.I.S.<span id="fbadge">✦ FABLE 5</span></div>
-    <div class="hstat"><span class="hago" id="hago"></span><span class="dot" id="dot"></span><span class="stxt" id="stxt">ONLINE</span><span class="close" id="close">×</span></div>
+    <div class="hstat"><span class="hago" id="hago"></span><span class="pill" id="pill"><span class="dot" id="dot"></span><span class="stxt" id="stxt">ONLINE</span></span><span class="close" id="close">×</span></div>
   </div>
   <div class="sess" id="sess">// sessao</div>
+  <div id="mtag"></div>
+  <div id="peak"></div>
+  <div id="bootflare"></div>
+  <div id="boottext"></div>
+  <div class="glass"></div>
+  <div class="corner" id="c1"></div><div class="corner" id="c2"></div><div class="corner" id="c3"></div><div class="corner" id="c4"></div>
   <canvas id="reactor" width="160" height="160"></canvas>
   <canvas id="fx" width="760" height="600" style="position:absolute;left:0;top:0;width:380px;height:300px;pointer-events:none;z-index:5"></canvas>
   <div class="m lbl" id="tempoL">TEMPO DE OP.</div><div class="m mv" id="tempoV">00:00</div>
@@ -97,6 +126,8 @@
   <div id="feed"></div>
   <div class="crtline" id="crtline"></div>
 </div>
+<div id="bdot"></div>
+<div id="bline"></div>
 <script>
 const fs = require('fs'), path = require('path');
 let ipcRenderer = null; try { ipcRenderer = require('electron').ipcRenderer; } catch (e) {}
@@ -112,6 +143,8 @@ const DONE_CLOSE = 20000, IDLE_CLOSE = 600000, FEEDN = 8, HB = 1000;
 let title = '', startTs = 0, lastFeedTs = 0, feed = [], actions = 0, endShownAt = 0;
 let actTs = [], apm = 0, apmPeak = 0, apmRef = 0, apmHist = new Array(10).fill(0), apmHistIdx = 0;
 let spark = new Array(16).fill(0), load = 0, taskDone = 0, taskTotal = 0;
+let loadPeak = 0;    // pico VU da carga: segura o maximo e decai (realismo de medidor)
+let modelId = '';    // id do modelo real da sessao (etiqueta OPUS/SONNET/...)
 let closing = false, bornMs = Date.now();
 let fable = false;   // sessao rodando o FABLE 5 (classe Mythos) -> visual especial
 // transicao CINEMATICA entre modos: heat 0=normal .. 1=FABLE (onda + recolorir tudo)
@@ -125,7 +158,8 @@ function readState() {
   // modo FABLE 5: statusline/hooks gravam o modelo da sessao em model.txt (linha 1 = id).
   // Mudou no meio da sessao? Dispara a transicao cinematica (a 1a leitura so posiciona).
   try {
-    const nf = fs.readFileSync(P('model.txt'), 'utf8').split('\n')[0].trim().toLowerCase().includes('fable');
+    modelId = fs.readFileSync(P('model.txt'), 'utf8').split('\n')[0].trim().toLowerCase();
+    const nf = modelId.includes('fable');
     if (!modelInit) { fable = nf; heat = nf ? 1 : 0; modelInit = true; }
     else if (nf !== fable) { fable = nf; beginTrans(); }
   } catch (e) { if (!modelInit) { fable = false; heat = 0; modelInit = true; } }
@@ -148,7 +182,17 @@ function recompute() {
   const now = Date.now(); let c60 = 0, c30 = 0; spark = new Array(16).fill(0);
   for (const t of actTs) { const d = now - t; if (d < 0) continue; if (d <= 60000) c60++; if (d <= 30000) c30++; if (d < 64000) { const i = 15 - Math.floor(d / 4000); if (i >= 0 && i < 16) spark[i]++; } }
   apm = c60; if (apm > apmPeak) apmPeak = apm; load = Math.min(1, c30 / 8);
+  loadPeak = Math.max(load, Math.max(0, loadPeak - 0.06));   // pico VU: segura e decai ~6%/s
   apmRef = apmHist[apmHistIdx]; apmHist[apmHistIdx] = apm; apmHistIdx = (apmHistIdx + 1) % apmHist.length;
+}
+
+// etiqueta curta do modelo real da sessao (Fable ja tem o badge no titulo)
+function shortModel(id) {
+  if (!id || id.includes('fable')) return '';
+  if (id.includes('opus')) return 'OPUS';
+  if (id.includes('sonnet')) return 'SONNET';
+  if (id.includes('haiku')) return 'HAIKU';
+  return id.replace(/[^a-z0-9]/g, '').toUpperCase().slice(0, 8);
 }
 
 function tagColor(tag) {
@@ -171,13 +215,20 @@ function renderDOM() {
   const st = status();
   // OVERHEAT (Fable 5): numeros incandescentes, brasa nos subtextos e status "PLENA CARGA"
   const VAL = fable ? '#FFD98A' : 'var(--amber)', EMB = fable ? '#FF7A3C' : 'var(--deep)';
-  const sc = st === 'OPERANDO' ? (fable ? '#FF7A3C' : 'var(--amber)') : st === 'ENCERRADO' ? 'var(--faint)' : 'var(--online)';
+  const scHex = st === 'OPERANDO' ? (fable ? '#FF7A3C' : '#E8B24A') : st === 'ENCERRADO' ? '#6C786E' : '#86E3A6';
+  const sc = scHex;
   el('fbadge').style.display = (fable || heat > 0.02) ? 'inline-block' : 'none';
   el('fbadge').style.opacity = Math.max(0, Math.min(1, heat));
   el('hud').classList.toggle('fable', fable);
   el('stxt').textContent = (heat >= 0.5 && st === 'OPERANDO') ? 'PLENA CARGA' : st;
   el('stxt').style.color = sc; el('dot').style.background = sc;
+  const rgb = parseInt(scHex.slice(1), 16), rr = rgb >> 16, gg = (rgb >> 8) & 255, bb = rgb & 255;   // capsula do status
+  el('pill').style.borderColor = 'rgba(' + rr + ',' + gg + ',' + bb + ',.42)';
+  el('pill').style.background = 'rgba(' + rr + ',' + gg + ',' + bb + ',.10)';
   el('hago').textContent = agoTxt(); el('hago').style.color = agoColor();
+  const mtag = (heat < 0.5) ? shortModel(modelId) : '';
+  el('mtag').textContent = mtag;
+  el('sess').style.right = mtag ? '70px' : '14px';
   el('sess').textContent = title ? '// ' + title : '// sessao (CLI)';
   el('tempoV').textContent = elapsed(); el('tempoV').style.color = VAL;
   el('acoesV').textContent = actions; el('acoesV').style.color = VAL;
@@ -189,13 +240,18 @@ function renderDOM() {
   el('barFill').style.background = fable ? 'linear-gradient(90deg,#B5471F,#FFD98A,#FFF4DC)' : '';
   el('cargaP').textContent = Math.round(pct * 100) + '%'; el('cargaP').style.color = pct > 0 ? VAL : 'var(--faint)';
   el('cargaS').textContent = hasTasks ? (taskDone + '/' + taskTotal) : (load > 0.05 ? (fable ? 'a plena carga' : 'reator ativo') : 'em repouso');
+  const pk = el('peak');                                  // pico VU: marcador que segura e decai
+  pk.style.opacity = (!hasTasks && loadPeak > 0.04) ? 0.9 : 0;
+  pk.style.left = (210 + Math.min(111, 112 * loadPeak)) + 'px';
+  pk.style.background = fable ? '#FFF4DC' : 'var(--bright)';
   el('apmV').textContent = apm; el('apmV').style.color = apm > 0 ? VAL : 'var(--faint)';
   el('apmPk').textContent = 'pico ' + apmPeak;
   const tr = apm - apmRef; el('trend').textContent = tr > 0 ? '▲' : tr < 0 ? '▼' : '—'; el('trend').style.color = tr > 0 ? 'var(--online)' : tr < 0 ? 'var(--red)' : 'var(--faint)';
   // sparkline
   const sp = el('spark'); if (sp.children.length !== 16) { sp.innerHTML = ''; for (let i = 0; i < 16; i++) sp.appendChild(document.createElement('i')); }
   let smax = 1; for (const v of spark) if (v > smax) smax = v;
-  for (let i = 0; i < 16; i++) { const v = spark[i], bar = sp.children[i]; bar.style.height = (v <= 0 ? 2 : Math.max(3, (v / smax) * 15)) + 'px'; bar.style.background = v <= 0 ? 'rgba(108,120,110,.45)' : (i === 15 ? (fable ? '#FFF4DC' : 'var(--bright)') : i >= 11 ? (fable ? '#FFD98A' : 'var(--amber)') : i >= 6 ? (fable ? '#FF7A3C' : 'var(--mut)') : (fable ? '#B5471F' : 'var(--deep)')); }
+  for (let i = 0; i < 16; i++) { const v = spark[i], bar = sp.children[i]; bar.style.height = (v <= 0 ? 2 : Math.max(3, (v / smax) * 15)) + 'px'; bar.style.background = v <= 0 ? 'rgba(108,120,110,.45)' : (i === 15 ? (fable ? '#FFF4DC' : 'var(--bright)') : i >= 11 ? (fable ? '#FFD98A' : 'var(--amber)') : i >= 6 ? (fable ? '#FF7A3C' : 'var(--mut)') : (fable ? '#B5471F' : 'var(--deep)'));
+    bar.style.boxShadow = (i === 15 && v > 0) ? ('0 0 7px ' + (fable ? 'rgba(255,244,220,.55)' : 'rgba(244,194,92,.5)')) : 'none'; }   // halo no "agora"
   el('eventsC').textContent = 'EVENTOS ' + String(actions).padStart(4, '0');
   // feed
   const fc = el('feed'); fc.innerHTML = '';
@@ -206,7 +262,12 @@ function renderDOM() {
     const row = document.createElement('div'); row.className = 'frow';
     const chip = document.createElement('span'); chip.className = 'chip'; chip.style.color = col; chip.textContent = f[1];
     const tx = document.createElement('span'); tx.className = 'ftxt'; tx.textContent = fit(f[2], 44);
-    row.appendChild(chip); row.appendChild(tx); fc.appendChild(row);
+    row.appendChild(chip); row.appendChild(tx);
+    if (i === feed.length - 1) {                          // accent da linha mais nova (fade 3s)
+      const ak = 1 - (Date.now() - f[0]) / 3000;
+      if (ak > 0 && ak <= 1) { const acc = document.createElement('b'); acc.className = 'acc'; acc.style.opacity = ak.toFixed(2); row.appendChild(acc); }
+    }
+    fc.appendChild(row);
   }
 }
 
@@ -294,7 +355,7 @@ function fxLoop() {
 
 // ---- desligamento (esfria + colapso CRT), dirigido por JS p/ casar com o QA ----
 function ease(t) { return t * t * (3 - 2 * t); }
-function coldFilter(t) { return 'grayscale(' + (.65 * t).toFixed(3) + ') sepia(' + (.55 * t).toFixed(3) + ') hue-rotate(' + Math.round(185 * t) + 'deg) contrast(' + (1 - .12 * t).toFixed(3) + ')'; }
+function coldFilter(t) { return 'grayscale(' + (.85 * t).toFixed(3) + ') sepia(' + (.5 * t).toFixed(3) + ') hue-rotate(' + Math.round(190 * t) + 'deg) contrast(' + (1 - .12 * t).toFixed(3) + ')'; }   // frio AZUL-ACO (mata o verde da tinta)
 let shutP = 0;
 function shutdownFrame(p) {
   shutP = p = Math.max(0, Math.min(1, p));
@@ -308,6 +369,53 @@ function shutdownFrame(p) {
 function beginShutdown() {
   if (closing) return; closing = true; const start = Date.now(), DUR = 1500;
   (function step() { const p = (Date.now() - start) / DUR; shutdownFrame(Math.min(1, p)); if (p >= 1) { try { ipcRenderer && ipcRenderer.send('hud-close'); } catch (e) {} return; } requestAnimationFrame(step); })();
+}
+
+// ---- IGNICAO (boot): espelho QUENTE do desligamento — fisga de luz -> linha CRT ->
+// abertura vertical -> aquecimento + flare do nucleo. One-shot de ~1.4s na abertura.
+function bootFrame(p) {
+  p = Math.max(0, Math.min(1, p));
+  const hud = el('hud'), dot = el('bdot'), line = el('bline'), flare = el('bootflare'), btxt = el('boottext');
+  if (p >= 1) { dot.style.display = 'none'; line.style.opacity = 0; flare.style.opacity = 0; btxt.style.opacity = 0; hud.style.filter = ''; hud.style.transform = ''; hud.style.opacity = 1; return; }
+  if (p < 0.10) {                                        // 1) fisga: um ponto de luz acende
+    const t = p / 0.10;
+    hud.style.opacity = 0; line.style.opacity = 0;
+    dot.style.display = 'block'; dot.style.opacity = t.toFixed(2); dot.style.transform = 'scale(' + (0.3 + 0.9 * t).toFixed(2) + ')';
+    return;
+  }
+  dot.style.display = 'none';
+  if (p < 0.26) {                                        // 2) ponto -> linha
+    const t = (p - 0.10) / 0.16, e2 = 1 - (1 - t) * (1 - t);
+    hud.style.opacity = 0;
+    line.style.opacity = 1; line.style.transform = 'scaleX(' + Math.max(0.02, e2).toFixed(3) + ')';
+    return;
+  }
+  if (p < 0.54) {                                        // 3) abertura vertical (CRT ao contrario)
+    const t = (p - 0.26) / 0.28, e2 = 1 - (1 - t) * (1 - t);
+    line.style.opacity = (1 - t).toFixed(2);
+    hud.style.opacity = 1;
+    hud.style.transform = 'scaleY(' + Math.max(0.02, e2).toFixed(3) + ')';
+    hud.style.filter = coldFilter(0.85 * (1 - t)) + ' brightness(' + (0.55 + 0.45 * t).toFixed(3) + ')';
+    return;
+  }
+  {                                                      // 4) aquecimento + flare do nucleo
+    const t = (p - 0.54) / 0.46;
+    line.style.opacity = 0;
+    hud.style.opacity = 1; hud.style.transform = '';
+    const s = 0.85 * (1 - Math.min(1, t * 1.35));
+    hud.style.filter = s > 0.004 ? coldFilter(s) : '';
+    const fk = Math.sin(Math.PI * Math.min(1, t / 0.75));
+    flare.style.opacity = (0.9 * fk).toFixed(2);
+    flare.style.transform = 'scale(' + (0.5 + 1.7 * t).toFixed(2) + ')';
+    btxt.textContent = t < 0.5 ? (fable ? '// PROTOCOLO FABLE 5' : '// IGNICAO DO NUCLEO') : '// SISTEMAS ONLINE';
+    btxt.style.opacity = Math.max(0, 1 - t * t).toFixed(2);
+    btxt.style.color = t < 0.5 ? 'var(--mut)' : 'var(--online)';
+  }
+}
+function beginBoot() {
+  const start = Date.now(), DUR = 1400;
+  bootFrame(0);
+  (function step() { if (closing) { bootFrame(1); return; } const p = (Date.now() - start) / DUR; bootFrame(Math.min(1, p)); if (p < 1) requestAnimationFrame(step); })();
 }
 
 // ---- tick de dados + ciclo de vida (1x/s) ----
@@ -338,11 +446,13 @@ function seed() {
 // ---- boot ----
 el('close').addEventListener('click', () => { try { fs.writeFileSync(P('closed'), '1'); } catch (e) {} try { ipcRenderer && ipcRenderer.send('hud-close'); } catch (e) {} });
 drawReactor();
-if (MODE === 'shot' || MODE === 'shotshut') {
+if (MODE === 'shot' || MODE === 'shotshut' || MODE === 'shotboot') {
   seed(); renderDOM();
   if (MODE === 'shotshut') { shutdownFrame(SHOTP); }
+  if (MODE === 'shotboot') { bootFrame(SHOTP); }
 } else {
   tick(); setInterval(tick, HB);
+  beginBoot();                                           // ignicao cinematica na abertura
 }
 </script>
 </body>

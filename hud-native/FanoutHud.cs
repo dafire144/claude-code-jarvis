@@ -203,6 +203,7 @@ class FanoutHud : Form {
     } else {
       g.DrawString("a legiao trabalha, senhor", fTiny, B(AmberDeep), px + 1, 166);
     }
+    g.DrawImage(Cine.Overlay(W, H), new Rectangle(0, 0, W, H));   // vidro do painel (scanlines + vinheta)
   }
 
   // ENXAME: nucleo orquestrador + 2 aneis de agentes orbitando + conexoes pulsando.
@@ -229,6 +230,12 @@ class FanoutHud : Form {
       int la = (int)(55 + 45 * Math.Sin(phase * 3.0 + i * 1.7));
       if (la < 12) la = 12;
       using (var lp = new Pen(Color.FromArgb(done ? 40 : la, done ? Online : Amber), 1f)) g.DrawLine(lp, cx, cy, nx, ny);
+      // pacote de dados viajando na conexao (ordens saindo do orquestrador p/ o agente)
+      if (live) {
+        double pk = (phase * 0.5 + i * 0.37 + (offset > 0 ? 0.53 : 0)) % 1.0; if (pk < 0) pk += 1;
+        float pxp = cx + (float)((nx - cx) * pk), pyp = cy + (float)((ny - cy) * pk);
+        using (var pb = new SolidBrush(Color.FromArgb((int)(205 * (1 - pk * 0.55)), AmberBright))) g.FillEllipse(pb, pxp - 1.4f, pyp - 1.4f, 2.8f, 2.8f);
+      }
       // no (agente)
       float np = 3.6f + (live ? 1.2f * (float)Math.Sin(phase * 2.5 + i * 1.3) : 0f);
       Color nc = done ? Online : AmberBright;

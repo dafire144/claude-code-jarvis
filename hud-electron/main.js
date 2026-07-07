@@ -1,7 +1,8 @@
 // J.A.R.V.I.S. HUD (Electron) — telinha por sessao, cross-platform (usada no macOS).
 // Espelha a versao nativa do Windows: janela sem moldura, transparente, sempre-no-topo,
-// uma por sessao. Le hud-sessions/<sid>/ (meta/feed/progress/done/end/closed) escritos
-// pelos hooks. Modos de QA: --shot <png> e --shot-shut <png> <p>.
+// uma por sessao, com IGNICAO cinematica na abertura e desligamento CRT no fim. Le
+// hud-sessions/<sid>/ (meta/feed/progress/done/end/closed) escritos pelos hooks.
+// Modos de QA: --shot <png> [fable], --shot-boot <png> <p> e --shot-shut <png> <p>.
 const { app, BrowserWindow, ipcMain, screen } = require('electron');
 const fs = require('fs');
 const path = require('path');
@@ -14,6 +15,7 @@ const argv = process.argv.slice(app.isPackaged ? 1 : 2);
 let mode = 'run', sid = 'global', shotOut = null, shotP = 0.3, shotFable = false;
 if (argv[0] === '--shot') { mode = 'shot'; shotOut = argv[1]; shotFable = argv[2] === 'fable'; }
 else if (argv[0] === '--shot-shut') { mode = 'shotshut'; shotOut = argv[1]; shotP = parseFloat(argv[2] || '0.3'); }
+else if (argv[0] === '--shot-boot') { mode = 'shotboot'; shotOut = argv[1]; shotP = parseFloat(argv[2] || '0.7'); }
 else if (argv[0]) { sid = argv[0]; }
 
 const cleanSid = String(sid).replace(/[^A-Za-z0-9_-]/g, '');

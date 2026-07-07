@@ -1,17 +1,27 @@
 // J.A.R.V.I.S. HUD nativo POR SESSAO (WinForms + GDI+, ultra-leve ~25MB).
 // Uso: jarvis-hud-wf.exe <session-id>   (uma janela por sessao, mutex dedupe)
-//      jarvis-hud-wf.exe --shot <out.png>  (renderiza 1 frame sintetico p/ QA visual)
+//      jarvis-hud-wf.exe --shot <out.png> [fable]        (1 frame sintetico p/ QA visual)
+//      jarvis-hud-wf.exe --shot-boot <out.png> <p> [fable]  (frame da IGNICAO em p=0..1)
+//      jarvis-hud-wf.exe --shot-shut <out.png> <p>          (frame do desligamento em p=0..1)
 // Le hud-sessions\<sid>\ (meta.txt + feed.txt + progress.txt) escrito pelos hooks/daemon.
-// Mostra: nucleo do reator animado, status, sessao, TEMPO DE OP., barra ATIVIDADE/CARGA,
-// ACOES, APM (acoes/min) + tendencia, HA Xs (frescor), sparkline de PULSO e um FEED de
-// telemetria (chips coloridos; a fala do Jarvis pisca). Sem relogio de parede.
+// Mostra: nucleo do reator animado (aneis + raios + motas de energia), status em capsula
+// com LED respirando, sessao + etiqueta do MODELO real, TEMPO DE OP., barra ATIVIDADE/
+// CARGA com pico VU, ACOES, APM + tendencia, HA Xs (frescor), sparkline de PULSO e um
+// FEED de telemetria (chips coloridos; a fala do Jarvis pisca; linha nova ganha accent).
+// CINEMATICAS one-shot: IGNICAO na abertura (fisga de luz -> linha CRT -> abre -> aquece
+// + flare), desligamento (esfria com glitch CRT -> colapso -> ponto) e transicao de
+// modelo (onda de choque + tranco fisico). Acabamento: vidro com scanlines + vinheta,
+// grade blueprint e cantoneiras de mira. Sem relogio de parede.
 //
-// PERFORMANCE (PC fraco): animacao continua a ~15fps SO quando OPERANDO e SO repinta a
-// area do nucleo (Invalidate(atomRect)). TODOS os sinais novos (APM, sparkline, HA Xs,
-// carga, flash) sao calculados 1x/segundo no DataTick e desenhados no Invalidate() cheio
-// de 1Hz. Nada novo entra no loop de 66ms. So se anima o que ja e barato (rotacao/pulso
-// do nucleo por transform; flash do chip decai por alfa em passos de 1s). Fonte ASCII de
-// proposito (acentos vem dos arquivos UTF8 em runtime).
+// PERFORMANCE (PC fraco): animacao continua repinta SO a area do nucleo
+// (Invalidate(atomRect)) a ~15fps (30 no Fable). TODOS os sinais novos (APM, sparkline,
+// HA Xs, carga, pico VU, flash, accent) sao calculados 1x/segundo no DataTick e
+// desenhados no Invalidate() cheio de 1Hz. A decoracao nova (grade, capsula, vidro) vive
+// nesse mesmo passo de 1Hz — nada novo entra no loop de 66ms alem de 5 primitivas do
+// nucleo (anel tracejado + 2 motas). As cinematicas (ignicao/desligamento/transicao)
+// rodam a ~120fps por ~1.5s e DEVOLVEM o intervalo normal ao terminar (one-shot).
+// O vidro (scanlines+vinheta) e 1 bitmap gerado uma unica vez e cacheado (classe Cine).
+// Fonte ASCII de proposito (acentos vem dos arquivos UTF8 em runtime).
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -52,6 +62,9 @@ class JarvisHudWF : Form {
   // ---- sequencia de desligamento (esfriar o nucleo + colapso estilo CRT) ----
   bool closing = false; long closeStartMs = 0; Bitmap shotBmp = null, coldBmp = null;
   const long SHUT_MS = 1500;   // duracao da animacao de desligamento
+  // ---- sequencia de IGNICAO (boot: fisga de luz -> linha CRT -> abre -> aquece) ----
+  bool booting = false; long bootStartMs = 0; Bitmap bootBmp = null;
+  const long BOOT_MS = 1400;   // duracao da ignicao (one-shot, espelho do desligamento)
   [System.Runtime.InteropServices.DllImport("winmm.dll")] static extern uint timeBeginPeriod(uint p);
   [System.Runtime.InteropServices.DllImport("winmm.dll")] static extern uint timeEndPeriod(uint p);
 
@@ -61,7 +74,9 @@ class JarvisHudWF : Form {
   int[] spark = new int[16];      // 16 baldes de ~4s = ~64s
   int[] apmHist = new int[10]; int apmHistIdx = 0;   // ring 1x/s -> tendencia vs ~10s atras
   double loadPct = 0;             // "carga do reator" = acoes nos ultimos 30s / TETO
+  double loadPeak = 0;            // pico VU da carga: segura o maximo e decai (realismo de medidor)
   long lastJvsTs = 0;             // ultima fala do Jarvis (p/ flash do chip)
+  string modelShort = "";         // etiqueta do modelo real da sessao (OPUS/SONNET/...)
 
   static Color Ink1 = C("#121F17"), Ink2 = C("#070E09");
   static Color Amber = C("#E8B24A"), AmberBright = C("#F4C25C"), AmberMut = C("#BE9E6C"), AmberDeep = C("#8A6A2E");
@@ -97,6 +112,7 @@ class JarvisHudWF : Form {
   static void Main(string[] args) {
     if (args.Length >= 2 && args[0] == "--shot") { Shot(args[1], args.Length > 2 && args[2] == "fable"); return; }
     if (args.Length >= 3 && args[0] == "--shot-shut") { ShotShut(args[1], double.Parse(args[2], CultureInfo.InvariantCulture)); return; }
+    if (args.Length >= 3 && args[0] == "--shot-boot") { ShotBoot(args[1], double.Parse(args[2], CultureInfo.InvariantCulture), args.Length > 3 && args[3] == "fable"); return; }
     if (args.Length >= 2 && args[0] == "--fanout-shot") { FanoutHud.Shot(args[1], args.Length > 2 && args[2] == "done"); return; }
     if (args.Length >= 2 && args[0] == "--fanout") { FanoutHud.Run(args[1]); return; }   // telinha de fan-out (substitui o CMD)
     string sid = args.Length > 0 ? args[0] : "global";
@@ -117,6 +133,19 @@ class JarvisHudWF : Form {
     }
     var bmp = new Bitmap(W, H);
     using (var g = Graphics.FromImage(bmp)) f.Render(g);
+    bmp.Save(outPng, System.Drawing.Imaging.ImageFormat.Png);
+  }
+
+  // QA visual: renderiza 1 frame da IGNICAO no progresso p (0..1); arg "fable" = modo FABLE 5
+  static void ShotBoot(string outPng, double p, bool fableMode) {
+    var f = new JarvisHudWF("shot-demo", null);
+    f.Seed();
+    if (fableMode) { f.fable = true; f.heat = 1; f.modelShort = ""; }
+    f.bootBmp = new Bitmap(W, H);
+    using (var g0 = Graphics.FromImage(f.bootBmp)) f.Render(g0);
+    f.booting = true; f.bootStartMs = NowMs() - (long)(p * BOOT_MS);
+    var bmp = new Bitmap(W, H);
+    using (var g = Graphics.FromImage(bmp)) f.PaintBoot(g);
     bmp.Save(outPng, System.Drawing.Imaging.ImageFormat.Png);
   }
 
@@ -184,6 +213,10 @@ class JarvisHudWF : Form {
         if (NowMs() - closeStartMs >= SHUT_MS) { animTimer.Stop(); RealClose(); return; }
         Invalidate(); return;                       // repinta a janela toda durante o desligamento
       }
+      if (booting) {
+        if (NowMs() - bootStartMs >= BOOT_MS) { EndBoot(); return; }
+        Invalidate(); return;                       // ignicao repinta a janela toda (one-shot)
+      }
       // fase pelo RELOGIO (nao por incremento): velocidade estavel em qualquer fps,
       // sem "saltos" se um tick atrasar -- os satelites do Fable denunciavam (07/07)
       phase = (NowMs() - bornMs) / 500.0;
@@ -198,6 +231,24 @@ class JarvisHudWF : Form {
     animTimer.Start();    // nucleo anima SEMPRE (repinta so o atomRect -> custo baixo)
 
     UpdateStatus();
+    BeginBoot();          // IGNICAO cinematica na abertura (~1.4s, one-shot)
+    Invalidate();
+  }
+
+  // IGNICAO: espelho do desligamento, em tom QUENTE. Congela o 1o frame vivo e o revela
+  // em 4 atos (fisga de luz -> linha CRT -> abertura vertical -> aquecimento + flare).
+  // One-shot a ~120fps por BOOT_MS; terminou, o custo volta ao regime normal.
+  void BeginBoot() {
+    booting = true; bootStartMs = NowMs();
+    try { bootBmp = new Bitmap(W, H); using (var g = Graphics.FromImage(bootBmp)) Render(g); } catch { bootBmp = null; }
+    try { timeBeginPeriod(1); } catch {}
+    if (animTimer != null) animTimer.Interval = 8;
+  }
+  void EndBoot() {
+    booting = false;
+    try { timeEndPeriod(1); } catch {}
+    try { if (bootBmp != null) { bootBmp.Dispose(); bootBmp = null; } } catch {}
+    if (animTimer != null && !closing) animTimer.Interval = fable ? 33 : 66;
     Invalidate();
   }
 
@@ -216,7 +267,7 @@ class JarvisHudWF : Form {
     if (grew) ReadMeta();
     ReadProgress();
     ReadModel();          // modo FABLE 5 acende/apaga junto com o modelo da sessao
-    if (animTimer != null && !closing && !inTrans) {   // overdrive = nucleo a 30fps (segue so o atomRect)
+    if (animTimer != null && !closing && !inTrans && !booting) {   // overdrive = nucleo a 30fps (segue so o atomRect)
       int want = fable ? 33 : 66;
       if (animTimer.Interval != want) animTimer.Interval = want;
     }
@@ -252,6 +303,7 @@ class JarvisHudWF : Form {
     }
     apm = c60; if (apm > apmPeak) apmPeak = apm;
     loadPct = Math.Min(1.0, c30 / 8.0);
+    loadPeak = Math.Max(loadPct, Math.Max(0, loadPeak - 0.06));   // pico VU: segura e decai ~6%/s
     apmRef = apmHist[apmHistIdx];               // valor de ~10s atras (mais antigo do ring)
     apmHist[apmHistIdx] = apm; apmHistIdx = (apmHistIdx + 1) % apmHist.Length;
   }
@@ -281,13 +333,26 @@ class JarvisHudWF : Form {
   // Mudou o modelo NO MEIO da sessao? Dispara a transicao cinematica (aquecer/esfriar).
   void ReadModel() {
     try {
-      bool nf = false;
+      bool nf = false; string id = "";
       if (File.Exists(modelPath)) {
         var l = File.ReadAllLines(modelPath);
-        nf = l.Length > 0 && l[0].ToLowerInvariant().Contains("fable");
+        if (l.Length > 0) id = l[0].Trim().ToLowerInvariant();
+        nf = id.Contains("fable");
       }
+      modelShort = ShortModel(id);
       if (nf != fable) { fable = nf; BeginModelTrans(); }
     } catch {}
+  }
+
+  // etiqueta curta do modelo real da sessao (realismo de instrumento; Fable ja tem badge)
+  static string ShortModel(string id) {
+    if (id.Length == 0 || id.Contains("fable")) return "";
+    if (id.Contains("opus")) return "OPUS";
+    if (id.Contains("sonnet")) return "SONNET";
+    if (id.Contains("haiku")) return "HAIKU";
+    var sb = new StringBuilder();
+    foreach (char c in id) { if (char.IsLetterOrDigit(c)) sb.Append(char.ToUpperInvariant(c)); if (sb.Length >= 8) break; }
+    return sb.ToString();
   }
 
   // transicao entre modos: aquece (normal->Fable) ou esfria (Fable->normal) a janela
@@ -349,6 +414,7 @@ class JarvisHudWF : Form {
   protected override void OnPaint(PaintEventArgs e) {
     try {
       if (closing) { PaintShutdown(e.Graphics); return; }
+      if (booting) { PaintBoot(e.Graphics); return; }
       Render(e.Graphics);
     } catch { /* 1 frame ruim nunca pode travar/derrubar a janela */ }
   }
@@ -358,6 +424,10 @@ class JarvisHudWF : Form {
   // (nao e animacao continua): so roda quando a telinha vai fechar.
   void BeginShutdown() {
     if (closing) return;
+    if (booting) {                                                             // desligar vence a ignicao
+      booting = false; try { timeEndPeriod(1); } catch {}
+      try { if (bootBmp != null) { bootBmp.Dispose(); bootBmp = null; } } catch {}
+    }
     closing = true; closeStartMs = NowMs();
     try {
       shotBmp = new Bitmap(W, H); using (var g = Graphics.FromImage(shotBmp)) Render(g);
@@ -399,6 +469,68 @@ class JarvisHudWF : Form {
     return new ColorMatrix(m);
   }
 
+  // ------- IGNICAO ANIMADA: fisga de luz -> linha -> abertura CRT -> aquecimento -------
+  // Mesma linguagem visual do desligamento, invertida e QUENTE: o painel nasce gelido
+  // e escuro, as cores acendem ate o regime pleno e o nucleo da um flare de partida.
+  void PaintBoot(Graphics g) {
+    g.SmoothingMode = SmoothingMode.AntiAlias;
+    g.InterpolationMode = InterpolationMode.Bilinear;
+    g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+    double p = (double)(NowMs() - bootStartMs) / BOOT_MS; if (p < 0) p = 0; if (p > 1) p = 1;
+    using (var bgb = new SolidBrush(Ink2)) g.FillRectangle(bgb, 0, 0, W, H);
+    float cy = H / 2f;
+    Color warm = heat >= 0.5 ? MythGold : AmberBright;
+    Color pale = heat >= 0.5 ? MythPale : Color.FromArgb(255, 255, 244, 214);
+
+    if (p < 0.10) {                              // ---- 1) FISGA: um ponto de luz acende ----
+      double t = p / 0.10;
+      float r = (float)(1.5 + 6 * t);
+      using (var gl = new SolidBrush(Color.FromArgb((int)(150 * t), warm))) g.FillEllipse(gl, W / 2f - r * 2.2f, cy - r * 2.2f, r * 4.4f, r * 4.4f);
+      using (var dot = new SolidBrush(Color.FromArgb((int)(255 * t), pale))) g.FillEllipse(dot, W / 2f - r, cy - r, r * 2, r * 2);
+      return;
+    }
+    if (p < 0.26) {                              // ---- 2) PONTO -> LINHA ----
+      double t = (p - 0.10) / 0.16; double e2 = 1 - (1 - t) * (1 - t);
+      float ww = (float)(e2 * W); float x = (W - ww) / 2f;
+      using (var glow = new SolidBrush(Color.FromArgb((int)(120 * (1 - 0.4 * t)), warm))) g.FillRectangle(glow, x, cy - 6, ww, 12);
+      using (var line = new SolidBrush(pale)) g.FillRectangle(line, x, cy - 1.5f, ww, 3f);
+      return;
+    }
+    if (bootBmp == null) return;
+    if (p < 0.54) {                              // ---- 3) ABERTURA VERTICAL (CRT ao contrario) ----
+      double t = (p - 0.26) / 0.28; double e2 = 1 - (1 - t) * (1 - t);
+      float hh = (float)(e2 * H); if (hh < 3) hh = 3;
+      float y = cy - hh / 2f;
+      using (var ia = new ImageAttributes()) {
+        ia.SetColorMatrix(CoolMatrix(0.85 * (1 - t)));           // abre gelido e ja vai esquentando
+        g.DrawImage(bootBmp, new Rectangle(0, (int)y, W, (int)hh), 0, 0, W, H, GraphicsUnit.Pixel, ia);
+      }
+      int la = (int)(230 * (1 - t));
+      using (var glow = new SolidBrush(Color.FromArgb((int)(110 * (1 - t)), warm))) g.FillRectangle(glow, 0, y - 7, W, 14);
+      using (var line = new SolidBrush(Color.FromArgb(la, pale))) { g.FillRectangle(line, 0, y - 1.5f, W, 3f); g.FillRectangle(line, 0, y + hh - 1.5f, W, 3f); }
+      return;
+    }
+    {                                            // ---- 4) AQUECIMENTO + FLARE DO NUCLEO ----
+      double t = (p - 0.54) / 0.46;
+      double s = 0.85 * (1 - Math.Min(1.0, t * 1.35));           // frio residual -> zero (cores plenas)
+      if (s > 0.004) {
+        using (var ia = new ImageAttributes()) { ia.SetColorMatrix(CoolMatrix(s)); g.DrawImage(bootBmp, new Rectangle(0, 0, W, H), 0, 0, W, H, GraphicsUnit.Pixel, ia); }
+      } else g.DrawImage(bootBmp, new Rectangle(0, 0, W, H), 0, 0, W, H, GraphicsUnit.Pixel);
+      float sy = (float)((1 - t) * (H + 16)) - 8;                // varredura de energizacao SUBINDO
+      using (var sl = new SolidBrush(Color.FromArgb((int)(70 * (1 - t)), warm))) g.FillRectangle(sl, 0, sy - 1, W, 2.5f);
+      double fk = Math.Sin(Math.PI * Math.Min(1.0, t / 0.75));   // flare do nucleo: incha e assenta
+      if (fk > 0.01) {
+        float cxr = PAD + 36, cyr = 88;
+        float fr = (float)(10 + 46 * t);
+        using (var fg = new SolidBrush(Color.FromArgb((int)(95 * fk), warm))) g.FillEllipse(fg, cxr - fr, cyr - fr, 2 * fr, 2 * fr);
+        using (var fp = new Pen(Color.FromArgb((int)(140 * fk), pale), 1.6f)) g.DrawEllipse(fp, cxr - fr * 0.72f, cyr - fr * 0.72f, fr * 1.44f, fr * 1.44f);
+      }
+      string msg = t < 0.5 ? (heat >= 0.5 ? "// PROTOCOLO FABLE 5" : "// IGNICAO DO NUCLEO") : "// SISTEMAS ONLINE";
+      int ta = (int)(205 * (1 - t * t));
+      if (ta > 0) using (var b = new SolidBrush(Color.FromArgb(ta, Lerp(AmberMut, Online, t)))) g.DrawString(msg, fLbl, b, PAD - 1, H - 26);
+    }
+  }
+
   void PaintShutdown(Graphics g) {
     g.SmoothingMode = SmoothingMode.AntiAlias;
     g.InterpolationMode = InterpolationMode.Bilinear;
@@ -413,6 +545,13 @@ class JarvisHudWF : Form {
       using (var ia = new ImageAttributes()) {
         ia.SetColorMatrix(CoolMatrix(t));        // recolore TUDO fluidamente (nao e so um veu por cima)
         g.DrawImage(shotBmp, new Rectangle(0, 0, W, H), 0, 0, W, H, GraphicsUnit.Pixel, ia);
+      }
+      // glitch CRT: fatias finas do frame QUENTE saltam por um instante (energia resistindo)
+      if ((p * 9.0) % 1.0 < 0.16) {
+        float gy1 = (float)(((p * 57.0) % 1.0) * (H - 40)) + 14;
+        float gdx = (float)(Math.Sin(p * 400.0) * 5.0);
+        g.DrawImage(shotBmp, new RectangleF(gdx, gy1, W, 5), new RectangleF(0, gy1, W, 5), GraphicsUnit.Pixel);
+        g.DrawImage(shotBmp, new RectangleF(-gdx, gy1 + 9, W, 3), new RectangleF(0, gy1 + 9, W, 3), GraphicsUnit.Pixel);
       }
       float coreX = PAD + 36, coreY = 88; double ember = 1.0 - t;                // brasa do reator morrendo por cima
       Color emc = Lerp(Amber, Red, Math.Min(1.0, t * 1.5));
@@ -460,9 +599,30 @@ class JarvisHudWF : Form {
     // FABLE 5 em OVERHEAT: o fundo esquenta (tinta escura com brasa) e a moldura pulsa
     // entre ouro e brasa. Tudo interpola pelo `heat` -> a transicao recolore fluida.
     using (var bg = new LinearGradientBrush(rect, HC(Ink1, InkF1), HC(Ink2, InkF2), 72f)) g.FillRectangle(bg, rect);
+    if (inTrans) {                                   // tranco fisico no estalo da troca de modo
+      double stt = (NowMs() - transStart) / (double)TRANS_MS;
+      if (stt >= 0 && stt < 0.24) {
+        double sk = 1 - stt / 0.24;
+        g.TranslateTransform((float)(Math.Sin(stt * 92) * 2.4 * sk), (float)(Math.Cos(stt * 71) * 1.7 * sk));
+      }
+    }
+    // grade blueprint faint (profundidade de painel tecnico; some sob o recorte do nucleo)
+    using (var gpen = new Pen(Color.FromArgb(9, HC(BorderC, MythGold)), 1f)) {
+      for (int gx = 28; gx < W - 8; gx += 32) g.DrawLine(gpen, gx, 10, gx, H - 10);
+      for (int gy = 42; gy < H - 8; gy += 32) g.DrawLine(gpen, 10, gy, W - 10, gy);
+    }
     double hk = 0.5 + 0.5 * Math.Sin(NowMs() / 800.0);   // pulso de calor (avanca nos passos de 1s)
     using (var gp = RoundedPath(0.7f, 0.7f, W - 1.4f, H - 1.4f, RAD))
     using (var pen = new Pen(Color.FromArgb((int)(210 + 25 * heat), HC(BorderC, Lerp(MythGold, Ember, hk * 0.7))), 1.3f)) g.DrawPath(pen, gp);
+    {   // cantoneiras de mira: segundo traco so nos 4 cantos (linguagem de visor)
+      float o = 5.5f, dd = (RAD - 4) * 2;
+      using (var bp = new Pen(Color.FromArgb((int)(70 + 40 * heat * hk), HC(BorderC, MythGold)), 1.3f)) {
+        g.DrawArc(bp, o, o, dd, dd, 175, 100);
+        g.DrawArc(bp, W - o - dd, o, dd, dd, 265, 100);
+        g.DrawArc(bp, W - o - dd, H - o - dd, dd, dd, -5, 100);
+        g.DrawArc(bp, o, H - o - dd, dd, dd, 85, 100);
+      }
+    }
 
     // cabecalho
     g.DrawString("J.A.R.V.I.S.", fTitle, B(Amber), PAD - 2, 11);
@@ -471,6 +631,12 @@ class JarvisHudWF : Form {
     string stxt = (heat >= 0.5 && status == "OPERANDO") ? "PLENA CARGA" : status;
     float sw = g.MeasureString(stxt, fStat).Width;
     float sx = W - 30 - sw;
+    using (var pillP = RoundedPath(sx - 18, 12, sw + 24, 14, 7)) {   // capsula do status
+      using (var pf = new SolidBrush(Color.FromArgb(26, sc))) g.FillPath(pf, pillP);
+      using (var pp = new Pen(Color.FromArgb(70, sc), 1f)) g.DrawPath(pp, pillP);
+    }
+    double dk = 0.5 + 0.5 * Math.Sin(NowMs() / 900.0);               // respiro do LED (passos de 1s)
+    using (var hb2 = new SolidBrush(Color.FromArgb((int)(40 + 55 * dk), sc))) g.FillEllipse(hb2, sx - 14, 13, 11, 11);
     using (var b = new SolidBrush(sc)) g.FillEllipse(b, sx - 12, 15, 7, 7);
     g.DrawString(stxt, fStat, B(sc), sx, 12);
     g.DrawString("x", fClose, B(Faint), closeRect.X + 3, closeRect.Y - 2);
@@ -480,12 +646,18 @@ class JarvisHudWF : Form {
     if (idleTxt.Length > 0) {
       Color ic = IdleColor();
       float iw = g.MeasureString(idleTxt, fTiny).Width;
-      g.DrawString(idleTxt, fTiny, B(ic), sx - 16 - iw, 14);
+      g.DrawString(idleTxt, fTiny, B(ic), sx - 26 - iw, 14);
     }
 
-    // sessao
+    // sessao + etiqueta do modelo real (discreta, a direita; Fable usa o badge do titulo)
+    float mlw = 0;
+    if (modelShort.Length > 0 && heat < 0.5) {
+      mlw = g.MeasureString(modelShort, fTiny).Width;
+      g.DrawString(modelShort, fTiny, B(Faint), W - PAD - mlw + 2, 34);
+      mlw += 10;
+    }
     string slabel = string.IsNullOrEmpty(title) ? "sessao (CLI)" : "// " + title;
-    g.DrawString(Fit(g, slabel, fSess, W - 2 * PAD), fSess, B(AmberMut), PAD - 1, 32);
+    g.DrawString(Fit(g, slabel, fSess, W - 2 * PAD - mlw), fSess, B(AmberMut), PAD - 1, 32);
 
     // nucleo do reator (animado)
     DrawCore(g, PAD + 36, 88);
@@ -513,6 +685,12 @@ class JarvisHudWF : Form {
       Color g2 = hasTasks ? hot : Color.FromArgb(220, hot);
       using (var fill = new LinearGradientBrush(new RectangleF(BARX, BARY, BARW, BARH), g1, g2, 0f))
       using (var clip = RoundedPath(BARX, BARY, fw, BARH, BARH / 2f)) g.FillPath(fill, clip);
+    }
+    using (var gloss = new SolidBrush(Color.FromArgb(20, 255, 255, 255)))       // vidro na barra
+    using (var gpth = RoundedPath(BARX + 1, BARY + 1, BARW - 2, BARH / 2f, 3)) g.FillPath(gloss, gpth);
+    if (!hasTasks && loadPeak > 0.04) {                                          // pico VU: segura e decai
+      float pxk = BARX + (float)(BARW * loadPeak); if (pxk > BARX + BARW - 1) pxk = BARX + BARW - 1;
+      using (var pk = new SolidBrush(Color.FromArgb(200, HC(AmberBright, MythPale)))) g.FillRectangle(pk, pxk - 1, BARY - 2, 2f, BARH + 4);
     }
     g.DrawString((int)Math.Round(pct * 100) + "%", fStat, B(pct > 0 ? vBig : Faint), BARX + BARW + 6, BARY - 4);
     g.DrawString(hasTasks ? (taskDone + "/" + taskTotal) : (loadPct > 0.05 ? (heat >= 0.5 ? "a plena carga" : "reator ativo") : "em repouso"), fTiny, B(vSub), BARX, BARY + 11);
@@ -551,9 +729,16 @@ class JarvisHudWF : Form {
           using (var hp = RoundedPath(chip.X - 2, chip.Y - 2, chip.Width + 4, chip.Height + 4, 4)) g.FillPath(halo, hp);
         }
       }
+      using (var cf = new SolidBrush(Color.FromArgb(20, tc)))                     // miolo sutil do chip
+      using (var cfp = RoundedPath(chip.X, chip.Y, chip.Width, chip.Height, 3)) g.FillPath(cf, cfp);
       using (var cp = new Pen(Color.FromArgb(150, tc), 1f)) g.DrawPath(cp, RoundedPath(chip.X, chip.Y, chip.Width, chip.Height, 3));
       var cs = g.MeasureString(f[1], fChip);
       g.DrawString(f[1], fChip, B(tc), chip.X + (chip.Width - cs.Width) / 2, chip.Y + 1.5f);
+      if (i == feed.Count - 1) {                                                  // accent da linha mais nova (fade 3s)
+        long ats = 0; long.TryParse(f[0], out ats);
+        double ak = 1.0 - (now - ats) / 3000.0;
+        if (ak > 0 && ak <= 1) using (var ab = new SolidBrush(Color.FromArgb((int)(150 * ak), HC(AmberBright, MythPale)))) g.FillRectangle(ab, 7.5f, y + 1, 2f, 13f);
+      }
       g.DrawString(Fit(g, f[2], fFeed, W - PAD - (PAD + 48)), fFeed, B(i == feed.Count - 1 ? TextC : AmberMut), PAD + 48, y - 1);
       y += 16.5f;
     }
@@ -561,6 +746,8 @@ class JarvisHudWF : Form {
       g.DrawString("Aguardando telemetria da sessao...", fFeed, B(Faint), PAD + 2, DIVY + 27);
 
     if (inTrans) DrawModelTrans(g);   // onda de choque + letreiro por cima de tudo
+    g.ResetTransform();               // o "vidro" do painel nao treme junto com o conteudo
+    g.DrawImage(Cine.Overlay(W, H), new Rectangle(0, 0, W, H));   // scanlines + vinheta (1 bitmap cacheado)
   }
 
   // ONDA DE TRANSICAO entre modos: flash no nucleo + 2 aneis de choque varrendo a
@@ -604,6 +791,7 @@ class JarvisHudWF : Form {
       float h = Math.Max(3f, (v / (float)smax) * (SPKBASE - SPKTOP));
       Color cc = b == n - 1 ? (fable ? MythPale : AmberBright)
         : (b >= 11 ? (fable ? MythGold : Amber) : (b >= 6 ? (fable ? Ember : AmberMut) : (fable ? EmberDeep : AmberDeep)));
+      if (b == n - 1) using (var hl = new SolidBrush(Color.FromArgb(46, cc))) g.FillRectangle(hl, bx - 2, SPKBASE - h - 2, bw + 4, h + 3);   // halo no "agora"
       g.FillRectangle(B(cc), bx, SPKBASE - h, bw, h);
     }
   }
@@ -674,6 +862,23 @@ class JarvisHudWF : Form {
       g.DrawArc(p, -21, -21, 42, 42, 18, 116); g.DrawArc(p, -21, -21, 42, 42, 198, 116);
     }
     g.Restore(st);
+
+    // anel tracejado externo contra-girando (moldura viva do reator; 1 elipse por frame)
+    st = g.Save(); g.TranslateTransform(cx, cy); g.RotateTransform(-a * 0.4f);
+    using (var p = new Pen(Color.FromArgb(60, cMain), 1f)) { p.DashPattern = new float[] { 2.6f, 5f }; g.DrawEllipse(p, -33.5f, -33.5f, 67f, 67f); }
+    g.Restore(st);
+
+    // motas de energia: 2 particulas orbitando com rastro (vida em repouso; o Fable
+    // ja tem os satelites Mythos, entao elas se recolhem no overheat)
+    if (heat < 0.5) {
+      for (int i = 0; i < 2; i++) {
+        double mang = phase * (i == 0 ? 0.9 : -0.7) + i * 2.2;
+        double orb = 24 - 5 * Math.Sin(phase * 0.8 + i * 1.9);
+        float mx = cx + (float)(Math.Cos(mang) * orb), my = cy + (float)(Math.Sin(mang) * orb);
+        using (var tr = new SolidBrush(Color.FromArgb(55, cMain))) g.FillEllipse(tr, mx - 2.4f, my - 2.4f, 4.8f, 4.8f);
+        using (var mb = new SolidBrush(Color.FromArgb(190, cHot))) g.FillEllipse(mb, mx - 1.1f, my - 1.1f, 2.2f, 2.2f);
+      }
+    }
 
     // RAIOS DE LUZ emanando do centro: giram devagar e respiram (Fable = 16 e mais longos;
     // a contagem troca no meio da transicao, mascarada pelo flash/onda)
@@ -761,7 +966,7 @@ class JarvisHudWF : Form {
   public void Seed() {
     title = "Claude Code";
     startTs = NowMs() - (1000L * 60 * 7) - (1000L * 23);   // 07:23 de operacao
-    status = "OPERANDO"; phase = 1.15;
+    status = "OPERANDO"; phase = 1.15; modelShort = "OPUS"; loadPeak = 0.86;
     long now = NowMs();
     int[] off = { 1, 3, 4, 7, 9, 12, 15, 19, 24, 30, 38, 47, 58 };
     for (int i = 0; i < off.Length; i++) { actTs[(int)(actions % actTs.Length)] = now - off[i] * 1000L; actions++; }
@@ -789,4 +994,31 @@ class JarvisHudWF : Form {
   }
   protected override void OnMouseUp(MouseEventArgs e) { if (dragging) { dragging = false; if (movedDuringDrag) { userMoved = true; HudLayout.Release(pid); } movedDuringDrag = false; } base.OnMouseUp(e); }
   protected override void OnFormClosed(FormClosedEventArgs e) { try { HudLayout.Release(pid); } catch {} try { if (mutex != null) mutex.ReleaseMutex(); } catch {} base.OnFormClosed(e); }
+}
+
+// ---- acabamento HOLOGRAFICO compartilhado (telinha de sessao + fan-out) ----
+// "Vidro" do painel: scanlines finas + vinheta radial. Gerado UMA unica vez por
+// tamanho e cacheado; desenhar custa 1 DrawImage por repintura cheia (1Hz).
+static class Cine {
+  static Dictionary<long, Bitmap> cache = new Dictionary<long, Bitmap>();
+  public static Bitmap Overlay(int w, int h) {
+    long k = ((long)w << 16) | (uint)h;
+    if (cache.ContainsKey(k)) return cache[k];
+    var bmp = new Bitmap(w, h);
+    using (var g = Graphics.FromImage(bmp)) {
+      g.SmoothingMode = SmoothingMode.AntiAlias;
+      using (var ln = new SolidBrush(Color.FromArgb(13, 0, 0, 0)))          // scanlines sutis
+        for (int y = 1; y < h; y += 3) g.FillRectangle(ln, 0, y, w, 1);
+      using (var gp = new GraphicsPath()) {                                  // vinheta: centro limpo, cantos escurecem
+        gp.AddEllipse(-w * 0.35f, -h * 0.45f, w * 1.7f, h * 1.9f);
+        using (var pgb = new PathGradientBrush(gp)) {
+          pgb.CenterPoint = new PointF(w / 2f, h * 0.42f);
+          pgb.CenterColor = Color.FromArgb(0, 0, 0, 0);
+          pgb.SurroundColors = new Color[] { Color.FromArgb(66, 0, 0, 0) };
+          g.FillPath(pgb, gp);
+        }
+      }
+    }
+    cache[k] = bmp; return bmp;
+  }
 }

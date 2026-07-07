@@ -1,11 +1,16 @@
 # J.A.R.V.I.S. for Claude Code
 
-> A butler-voiced assistant layer for [Claude Code](https://claude.com/claude-code): it **speaks** to you, mirrors every event as a **native notification**, and runs a live **reactor-core HUD** on your desktop — one window per session, with a rather cinematic power-down animation when it's done.
+> A butler-voiced assistant layer for [Claude Code](https://claude.com/claude-code): it **speaks** to you, mirrors every event as a **native notification**, and runs a live **reactor-core HUD** on your desktop — one window per session, with cinematic ignition when it opens and a rather dramatic power-down when it's done.
 
 <p align="center">
   <img src="docs/hud.png" width="420" alt="Jarvis HUD — reactor core, telemetry feed and session metrics" />
   &nbsp;
-  <img src="docs/shutdown.png" width="420" alt="Jarvis HUD cooling down / shutting off" />
+  <img src="docs/hud-fable.png" width="420" alt="Jarvis HUD in FABLE 5 overdrive — overheated palette, white-gold reactor" />
+</p>
+<p align="center">
+  <img src="docs/boot.png" width="420" alt="Jarvis HUD igniting — CRT-style power-on with core flare" />
+  &nbsp;
+  <img src="docs/shutdown.png" width="420" alt="Jarvis HUD cooling down / collapsing like an old CRT" />
 </p>
 
 It hooks into Claude Code's event system (no polling, no cost) and reacts with pre-recorded lines: *"Positivo, senhor. Iniciando o trabalho."* when you send a prompt, *"Tarefa concluída, senhor."* when it finishes, energetic lines when you tell it to floor it, a gentle nudge at 3 a.m., and so on — **334 lines across 37 categories**, chosen by intent.
@@ -19,14 +24,11 @@ It hooks into Claude Code's event system (no polling, no cost) and reacts with p
 - **Speaks** — picks a line by what you're doing (prompt / question / done / error / deploy / git / test / research / late-night / greetings…), never repeating the same line twice in a row.
 - **Native notifications** — every line is mirrored to the OS notification center (Windows toast / macOS Notification Center) with the same text.
 - **Robotic blip** — a short synth lead-in before each line.
-- **Live desktop HUD** *(Windows)* — a frameless, always-on-top mini-panel per session: animated arc-reactor core emanating light, uptime, actions, APM + trend, activity sparkline, and a color-coded telemetry feed of what Claude is doing.
-- **Cinematic power-down** *(Windows)* — when a task ends the HUD **cools down** (amber → steel-blue, every element recoloring), **collapses like an old CRT**, and blinks out.
-- **FABLE 5 overdrive mode** — when a session runs Anthropic's most powerful model (Claude Fable 5), the whole HUD goes into **overheat**: heated background, border pulsing between gold and ember, white-hot reactor core with 16 rays and 3 orbiting satellites, molten metrics, a shimmering **"✦ FABLE 5"** badge and a *"PLENA CARGA"* status — plus **28 dedicated voice lines**, delivered fully in character: Jarvis treats Fable 5 as his own **hidden full-power protocol**, unlocked only for top-priority work (*"Protocolo Fable 5 autorizado, senhor. Desviando toda a energia do reator para o senhor."*). Switching models mid-session triggers a **cinematic transition** both ways: a shockwave sweeps the HUD while every element heats up (or cools down, steel-blue, back to normal), with an in-character voice line to match. Detection is instant — the desktop app's session file is read directly, with status-line and transcript-sniffing fallbacks.
+- **Live desktop HUD** — a frameless, always-on-top mini-panel per session, finished like a real Stark-tech instrument: animated arc-reactor core emanating light (counter-rotating rings, a dashed outer ring and two energy motes in orbit), a status **capsule** with a breathing LED, the session's **real model tag** (OPUS / SONNET / …), uptime, actions, APM + trend, a load bar with an analog-style **VU peak-hold marker**, activity sparkline, and a color-coded telemetry feed (fresh entries flash an amber accent). The whole panel sits under a subtle **holographic glass** — scanlines, vignette, blueprint grid and corner brackets.
+- **Cinematic ignition** — when the HUD opens, it **boots like a CRT coming to life**: a spark of light stretches into a line, the screen opens vertically, colors warm up from cold steel to amber, and the reactor core flares — with a `// IGNICAO DO NUCLEO` → `// SISTEMAS ONLINE` boot readout.
+- **Cinematic power-down** — when a task ends the HUD **cools down** (amber → steel-blue, every element recoloring, with brief CRT **glitch slices** where the warm colors fight back), **collapses like an old CRT**, and blinks out.
+- **FABLE 5 overdrive mode** — when a session runs Anthropic's most powerful model (Claude Fable 5), the whole HUD goes into **overheat**: heated background, border pulsing between gold and ember, white-hot reactor core with 16 rays and 3 orbiting satellites, molten metrics, a shimmering **"✦ FABLE 5"** badge and a *"PLENA CARGA"* status — plus **28 dedicated voice lines**, delivered fully in character: Jarvis treats Fable 5 as his own **hidden full-power protocol**, unlocked only for top-priority work (*"Protocolo Fable 5 autorizado, senhor. Desviando toda a energia do reator para o senhor."*). Switching models mid-session triggers a **cinematic transition** both ways: a shockwave sweeps the HUD and a **physical jolt shakes the panel** while every element heats up (or cools down, steel-blue, back to normal), with an in-character voice line to match. Detection is instant — the desktop app's session file is read directly, with status-line and transcript-sniffing fallbacks.
 - **Status line** — an optional Claude Code status line with model, folder, branch, live cost and clock (it also powers the Fable 5 detection, and marks the model with a golden ✦ when Fable is running).
-
-<p align="center">
-  <img src="docs/hud-fable.png" width="420" alt="Jarvis HUD in FABLE 5 overdrive — overheated palette, white-gold reactor, FABLE 5 badge" />
-</p>
 
 ## Platform support
 
@@ -35,7 +37,7 @@ It hooks into Claude Code's event system (no polling, no cost) and reacts with p
 | Butler voice | yes | yes |
 | Native notifications | yes (WinRT toast) | yes (osascript) |
 | Robotic blip | yes | yes |
-| Live desktop HUD + power-down animation | yes (native) | yes (Electron) |
+| Live desktop HUD + ignition / power-down cinematics | yes (native) | yes (Electron) |
 | FABLE 5 overdrive (HUD + voice) | yes | yes |
 | Status line | yes | yes |
 
