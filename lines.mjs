@@ -448,6 +448,45 @@ const NEW_LINES = {
 };
 for (const [c, arr] of Object.entries(NEW_LINES)) LINES[c] = (LINES[c] || []).concat(arr);
 
+// ============================================================================
+// MODO FABLE 5 (2026-07-07): falas dedicadas pro modelo mais poderoso da
+// Anthropic (classe Mythos, acima do Opus). O jarvis-notify detecta o modelo da
+// sessão via model.mjs (statusline grava hud-sessions/<sid>/model.txt; fallback
+// fareja o transcript). fable_boot toca 1x por sessão (marcador fable-hello);
+// fable/fable_stop entram por troca ocasional com cooldown próprio.
+// Append-only, como sempre. Rode gen-lines.mjs pra gerar os clipes.
+// ============================================================================
+LINES.fable_boot = [
+  "Senhor, o Fable 5 assumiu o núcleo. O modelo mais poderoso da Anthropic, ao seu dispor.",
+  "Classe Mythos acoplada, senhor. Hoje pensamos em outra categoria.",
+  "O Fable 5 despertou, senhor. Poucos giram essa chave.",
+  "Reator recalibrado para o Fable 5, senhor. Potência de sobra para qualquer missão.",
+  "Fable 5 online, senhor. O topo da linhagem Claude responde ao seu comando.",
+  "Senhor, apresento o Fable 5. O melhor cérebro da casa, inteiro para o senhor.",
+  "Núcleo Mythos estabilizado, senhor. É uma honra operar neste nível.",
+  "Fable 5 no comando, senhor. Recomendo apertar os cintos.",
+];
+LINES.fable = [
+  "O Fable 5 tece a solução, senhor. Fio por fio.",
+  "Raciocínio de classe Mythos em curso, senhor.",
+  "O Fable não corre, senhor. Ele chega antes.",
+  "O Fable 5 enxerga o tabuleiro inteiro, senhor.",
+  "Precisão de relojoeiro, potência de reator. Assim trabalha o Fable, senhor.",
+  "Nenhum nó resiste ao Fable 5 por muito tempo, senhor.",
+  "A quinta geração pensa fundo, senhor. Aguarde o brilho.",
+  "Fable 5 a plena carga, senhor. Um espetáculo silencioso.",
+  "Deixei o Fable 5 à vontade, senhor. Ele faz parecer fácil.",
+  "Processando no topo da cadeia, senhor. Nada menos serviria.",
+];
+LINES.fable_stop = [
+  "Concluído com a assinatura do Fable 5, senhor.",
+  "Feito, senhor. O Fable não entrega rascunho.",
+  "Missão encerrada em grande estilo, senhor. Cortesia do Fable 5.",
+  "O Fable 5 fecha a conta, senhor. Impecável, como se esperava.",
+  "Entregue, senhor. A quinta geração não conhece meio-termo.",
+  "Pronto, senhor. Obra digna do melhor modelo da casa.",
+];
+
 // --- avisos de USO da sessão (o quanto do contexto/energia já foi gasto) ---
 // Categoria = usage<% RESTANTE>. 1 clip cada (fala determinística).
 LINES.usage100 = ["100% do uso restante, vamos produzir, senhor."];

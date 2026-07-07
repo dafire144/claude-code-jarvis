@@ -9,6 +9,7 @@ import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { spawnSync, spawn } from "child_process";
 import { LINES } from "./lines.mjs";
+import { sessionModel, isFable } from "./model.mjs";
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const CLIPS = join(__dir, "clips");
@@ -44,6 +45,9 @@ const COOLDOWN = {
   credits: 300_000, // alerta importante, mas não repetir a cada requisição
   sessionend: 120_000,
   sessionstart: 10_000, // regra do Davi: só o 1º evento de boas-vindas num intervalo de 10s
+  fable: 240_000,       // modo FABLE 5: tempero ocasional, nunca papagaio
+  fable_stop: 300_000,
+  fable_boot: 120_000,  // várias sessões Fable abrindo juntas = só a 1ª anuncia
 };
 
 // categoria: 1º argumento, ou deriva do evento do hook (stdin)
@@ -242,6 +246,37 @@ logLine(`chamado: evt=${evt.hook_event_name || "?"} cat=${cat}${evt.source ? " s
 // --- cooldown por categoria ---
 let cds = {};
 try { cds = JSON.parse(readFileSync(COOLDOWNS_FILE, "utf8")); } catch { /* primeira vez */ }
+
+// --- MODO FABLE 5: o modelo mais poderoso da Anthropic ganha voz própria ---
+// O modelo da sessão vem de hud-sessions/<sid>/model.txt (statusline grava; sem
+// statusline o model.mjs fareja a cauda do transcript). Sessão rodando Fable:
+// 1) a PRIMEIRA fala vira a saudação épica fable_boot (1x por sessão, marcador
+//    fable-hello gravado ANTES da troca: se falhar, fica na fala normal);
+// 2) falas de trabalho trocam DE VEZ EM QUANDO pela versão Fable (chance baixa
+//    + cooldown checado ANTES da troca, senão o portão geral engoliria a fala).
+const FABLE_SWAP = {
+  prompt: ["fable", 0.22], code: ["fable", 0.2], terminal: ["fable", 0.15],
+  files: ["fable", 0.15], search: ["fable", 0.15], fanout: ["fable", 0.3],
+  ultracode: ["fable", 0.5], acelera: ["fable", 0.25], stop: ["fable_stop", 0.3],
+};
+if (evt.hook_event_name !== "SessionEnd") {   // teardown segue rápido e intocado
+  try {
+    if (isFable(sessionModel(__dir, evt.session_id, evt.transcript_path))) {
+      const fdir = join(__dir, "hud-sessions", String(evt.session_id || "").replace(/[^A-Za-z0-9_-]/g, ""));
+      const swapOk = (c) => !COOLDOWN[c] || now - (cds[c] || 0) >= COOLDOWN[c];
+      const bootCats = ["sessionstart", "prompt", "greet_am", "greet_pm", "greet_night", "ultracode", "acelera"];
+      if (bootCats.includes(cat) && !existsSync(join(fdir, "fable-hello")) && swapOk("fable_boot")) {
+        writeFileSync(join(fdir, "fable-hello"), "1");
+        logLine(`fable: ${cat} -> fable_boot (saudacao Mythos da sessao)`);
+        cat = "fable_boot";
+      } else if (FABLE_SWAP[cat] && Math.random() < FABLE_SWAP[cat][1] && swapOk(FABLE_SWAP[cat][0])) {
+        logLine(`fable: ${cat} -> ${FABLE_SWAP[cat][0]}`);
+        cat = FABLE_SWAP[cat][0];
+      }
+    }
+  } catch { /* modo Fable nunca derruba a fala normal */ }
+}
+
 if (COOLDOWN[cat] && now - (cds[cat] || 0) < COOLDOWN[cat]) { logLine(`silencio: cooldown de ${cat}`); process.exit(0); }
 
 // escolhe um clipe da categoria

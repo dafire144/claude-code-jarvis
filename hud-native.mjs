@@ -11,6 +11,7 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, sta
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { spawnSync, spawn } from "child_process";
+import { sessionModel } from "./model.mjs";
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dir, "hud-sessions");
@@ -195,6 +196,8 @@ if (ev === "Stop") {
 const title = findTitle(sid);
 if (!title) process.exit(0);
 try { mkdirSync(dir, { recursive: true }); } catch { /* ok */ }
+// mantém model.txt fresco pro exe/Electron (modo FABLE 5); statusline já cobre, isto é o fallback
+try { sessionModel(__dir, sid, evt.transcript_path); } catch { /* modelo é opcional */ }
 
 // UserPromptSubmit = o Davi mandou um prompt → marca o INÍCIO da tarefa (não abre ainda).
 if (ev === "UserPromptSubmit") {

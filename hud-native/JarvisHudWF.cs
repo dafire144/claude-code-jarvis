@@ -27,7 +27,8 @@ using System.Windows.Forms;
 using WinTimer = System.Windows.Forms.Timer;
 
 class JarvisHudWF : Form {
-  string sid, dir, feedPath, metaPath, hbPath, endPath, donePath;
+  string sid, dir, feedPath, metaPath, hbPath, endPath, donePath, modelPath;
+  bool fable;                     // sessao rodando o FABLE 5 (classe Mythos) -> visual especial
   string title = "";
   long startTs = 0;
   double phase = 0;
@@ -61,6 +62,9 @@ class JarvisHudWF : Form {
   static Color Ink1 = C("#121F17"), Ink2 = C("#070E09");
   static Color Amber = C("#E8B24A"), AmberBright = C("#F4C25C"), AmberMut = C("#BE9E6C"), AmberDeep = C("#8A6A2E");
   static Color TextC = C("#DCCDAB"), Online = C("#86E3A6"), BorderC = C("#C9A877"), Faint = C("#6C786E"), Red = C("#E8794C");
+  static Color MythGold = C("#FFD98A"), MythPale = C("#FFF4DC");   // FABLE 5: ouro-branco classe Mythos
+  static Color Ember = C("#FF7A3C"), EmberDeep = C("#B5471F");     // FABLE 5: brasa do overheat (forca total)
+  static Color InkF1 = C("#26150A"), InkF2 = C("#0F0603");         // FABLE 5: fundo aquecido pelo nucleo
   static Color C(string h) { return ColorTranslator.FromHtml(h); }
 
   Font fTitle = new Font("Consolas", 12f, FontStyle.Bold);
@@ -87,7 +91,7 @@ class JarvisHudWF : Form {
 
   [STAThread]
   static void Main(string[] args) {
-    if (args.Length >= 2 && args[0] == "--shot") { Shot(args[1]); return; }
+    if (args.Length >= 2 && args[0] == "--shot") { Shot(args[1], args.Length > 2 && args[2] == "fable"); return; }
     if (args.Length >= 3 && args[0] == "--shot-shut") { ShotShut(args[1], double.Parse(args[2], CultureInfo.InvariantCulture)); return; }
     if (args.Length >= 2 && args[0] == "--fanout-shot") { FanoutHud.Shot(args[1], args.Length > 2 && args[2] == "done"); return; }
     if (args.Length >= 2 && args[0] == "--fanout") { FanoutHud.Run(args[1]); return; }   // telinha de fan-out (substitui o CMD)
@@ -99,10 +103,14 @@ class JarvisHudWF : Form {
     Application.Run(new JarvisHudWF(sid, m));
   }
 
-  // render 1 frame sintetico p/ QA visual (sem janela/loop)
-  static void Shot(string outPng) {
+  // render 1 frame sintetico p/ QA visual (sem janela/loop). Arg "fable" = modo FABLE 5.
+  static void Shot(string outPng, bool fableMode) {
     var f = new JarvisHudWF("shot-demo", null);
     f.Seed();
+    if (fableMode) {
+      f.fable = true;
+      f.feed.Add(new string[] { NowMs().ToString(), "JVS", "O Fable 5 tece a solucao, senhor." });
+    }
     var bmp = new Bitmap(W, H);
     using (var g = Graphics.FromImage(bmp)) f.Render(g);
     bmp.Save(outPng, System.Drawing.Imaging.ImageFormat.Png);
@@ -144,6 +152,7 @@ class JarvisHudWF : Form {
     hbPath = Path.Combine(dir, "hb");
     endPath = Path.Combine(dir, "end");
     donePath = Path.Combine(dir, "done");
+    modelPath = Path.Combine(dir, "model.txt");
 
     FormBorderStyle = FormBorderStyle.None;
     ShowInTaskbar = false; TopMost = true;
@@ -158,7 +167,7 @@ class JarvisHudWF : Form {
     pid = System.Diagnostics.Process.GetCurrentProcess().Id;
     Location = HudLayout.Place(pid, bornMs, W, H, false);
     Beat();
-    ReadMeta(); ReadFeed();
+    ReadMeta(); ReadFeed(); ReadModel();
 
     dataTimer = new WinTimer(); dataTimer.Interval = 1000;
     dataTimer.Tick += delegate { DataTick(); };
@@ -192,6 +201,7 @@ class JarvisHudWF : Form {
     bool grew = ReadFeed();
     if (grew) ReadMeta();
     ReadProgress();
+    ReadModel();          // modo FABLE 5 acende/apaga junto com o modelo da sessao
     Recompute();          // recalcula APM/carga/sparkline 1x/s (barato)
     UpdateStatus();
     // encerra sozinho 20s apos o fim da sessao (com animacao de desligamento)
@@ -248,6 +258,16 @@ class JarvisHudWF : Form {
     } catch {}
   }
 
+  // modo FABLE 5: statusline/hooks gravam o modelo da sessao em model.txt (linha 1 = id).
+  // Fable no nucleo -> reator classe Mythos (ouro-branco, 16 raios, satelites) + badge.
+  void ReadModel() {
+    try {
+      if (!File.Exists(modelPath)) { fable = false; return; }
+      var l = File.ReadAllLines(modelPath);
+      fable = l.Length > 0 && l[0].ToLowerInvariant().Contains("fable");
+    } catch {}
+  }
+
   // le só o que cresceu no feed (append-only) -> baixo custo; conta acoes; mantem ultimas N
   bool ReadFeed() {
     try {
@@ -295,8 +315,10 @@ class JarvisHudWF : Form {
   SolidBrush B(Color c) { int k = c.ToArgb(); if (!brushes.ContainsKey(k)) brushes[k] = new SolidBrush(c); return brushes[k]; }
 
   protected override void OnPaint(PaintEventArgs e) {
-    if (closing) { PaintShutdown(e.Graphics); return; }
-    Render(e.Graphics);
+    try {
+      if (closing) { PaintShutdown(e.Graphics); return; }
+      Render(e.Graphics);
+    } catch { /* 1 frame ruim nunca pode travar/derrubar a janela */ }
   }
 
   // ------- DESLIGAMENTO ANIMADO: esfria o nucleo e colapsa a tela estilo CRT -------
@@ -403,14 +425,18 @@ class JarvisHudWF : Form {
     g.SmoothingMode = SmoothingMode.AntiAlias;
     g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
     var rect = new Rectangle(0, 0, W, H);
-    using (var bg = new LinearGradientBrush(rect, Ink1, Ink2, 72f)) g.FillRectangle(bg, rect);
+    // FABLE 5 em OVERHEAT: o fundo esquenta (tinta escura com brasa) e a moldura pulsa
+    // entre ouro e brasa -- a maquina inteira "sente" a forca total, nao so o nucleo.
+    using (var bg = new LinearGradientBrush(rect, fable ? InkF1 : Ink1, fable ? InkF2 : Ink2, 72f)) g.FillRectangle(bg, rect);
+    double hk = 0.5 + 0.5 * Math.Sin(NowMs() / 800.0);   // pulso de calor (avanca nos passos de 1s)
     using (var gp = RoundedPath(0.7f, 0.7f, W - 1.4f, H - 1.4f, RAD))
-    using (var pen = new Pen(Color.FromArgb(210, BorderC), 1.3f)) g.DrawPath(pen, gp);
+    using (var pen = new Pen(fable ? Color.FromArgb(235, Lerp(MythGold, Ember, hk * 0.7)) : Color.FromArgb(210, BorderC), 1.3f)) g.DrawPath(pen, gp);
 
     // cabecalho
     g.DrawString("J.A.R.V.I.S.", fTitle, B(Amber), PAD - 2, 11);
-    Color sc = status == "OPERANDO" ? Amber : status == "ENCERRADO" ? Faint : Online;
-    string stxt = status;
+    if (fable) DrawFableBadge(g, PAD - 2 + g.MeasureString("J.A.R.V.I.S.", fTitle).Width + 2, 12);
+    Color sc = status == "OPERANDO" ? (fable ? Ember : Amber) : status == "ENCERRADO" ? Faint : Online;
+    string stxt = (fable && status == "OPERANDO") ? "PLENA CARGA" : status;
     float sw = g.MeasureString(stxt, fStat).Width;
     float sx = W - 30 - sw;
     using (var b = new SolidBrush(sc)) g.FillEllipse(b, sx - 12, 15, 7, 7);
@@ -432,13 +458,14 @@ class JarvisHudWF : Form {
     // nucleo do reator (animado)
     DrawCore(g, PAD + 36, 88);
 
-    // ---- coluna esquerda: TEMPO DE OP. + ACOES ----
+    // ---- coluna esquerda: TEMPO DE OP. + ACOES (Fable = numeros incandescentes) ----
+    Color vBig = fable ? MythGold : Amber, vSub = fable ? Ember : AmberDeep;
     g.DrawString("TEMPO DE OP.", fLbl, B(Faint), MX, 50);
-    g.DrawString(Elapsed(), fBig, B(Amber), MX - 1, 59);
+    g.DrawString(Elapsed(), fBig, B(vBig), MX - 1, 59);
     g.DrawString("ACOES", fLbl, B(Faint), MX, 84);
-    g.DrawString(actions.ToString(), fBig2, B(Amber), MX - 1, 93);
+    g.DrawString(actions.ToString(), fBig2, B(vBig), MX - 1, 93);
     float aw = g.MeasureString(actions.ToString(), fBig2).Width;
-    g.DrawString("ops", fTiny, B(AmberDeep), MX + aw + 3, 102);
+    g.DrawString("ops", fTiny, B(vSub), MX + aw + 3, 102);
 
     // ---- coluna direita, linha 1: ATIVIDADE (tarefas) ou CARGA (reator) ----
     bool hasTasks = taskTotal > 0;
@@ -448,21 +475,23 @@ class JarvisHudWF : Form {
     float pct = hasTasks ? (float)taskDone / taskTotal : (float)loadPct;
     if (pct > 0) {
       float fw = Math.Max(BARH, BARW * pct);
-      Color g1 = hasTasks ? AmberDeep : Color.FromArgb(220, AmberDeep);
-      Color g2 = hasTasks ? AmberBright : Color.FromArgb(220, AmberBright);
+      Color hot = fable ? MythPale : AmberBright;                 // Fable: rampa fundida brasa -> ouro-branco
+      Color deep = fable ? EmberDeep : AmberDeep;
+      Color g1 = hasTasks ? deep : Color.FromArgb(220, deep);
+      Color g2 = hasTasks ? hot : Color.FromArgb(220, hot);
       using (var fill = new LinearGradientBrush(new RectangleF(BARX, BARY, BARW, BARH), g1, g2, 0f))
       using (var clip = RoundedPath(BARX, BARY, fw, BARH, BARH / 2f)) g.FillPath(fill, clip);
     }
-    g.DrawString((int)Math.Round(pct * 100) + "%", fStat, B(pct > 0 ? Amber : Faint), BARX + BARW + 6, BARY - 4);
-    g.DrawString(hasTasks ? (taskDone + "/" + taskTotal) : (loadPct > 0.05 ? "reator ativo" : "em repouso"), fTiny, B(AmberDeep), BARX, BARY + 11);
+    g.DrawString((int)Math.Round(pct * 100) + "%", fStat, B(pct > 0 ? vBig : Faint), BARX + BARW + 6, BARY - 4);
+    g.DrawString(hasTasks ? (taskDone + "/" + taskTotal) : (loadPct > 0.05 ? (fable ? "a plena carga" : "reator ativo") : "em repouso"), fTiny, B(vSub), BARX, BARY + 11);
 
     // ---- coluna direita, linha 2: APM (acoes/min) + tendencia + pico ----
     g.DrawString("APM", fLbl, B(Faint), X2, 84);
     string apmStr = apm.ToString();
-    g.DrawString(apmStr, fBig2, B(apm > 0 ? Amber : Faint), X2 - 1, 93);
+    g.DrawString(apmStr, fBig2, B(apm > 0 ? vBig : Faint), X2 - 1, 93);
     float apmW = g.MeasureString(apmStr, fBig2).Width;
     DrawTrend(g, X2 + apmW + 6, 100);
-    g.DrawString("pico " + apmPeak, fTiny, B(AmberDeep), X2 + apmW + 20, 101);
+    g.DrawString("pico " + apmPeak, fTiny, B(vSub), X2 + apmW + 20, 101);
 
     // ---- sparkline de PULSO (16 baldes ~4s = ~64s), full-width sob as metricas ----
     DrawSparkline(g);
@@ -471,7 +500,7 @@ class JarvisHudWF : Form {
     using (var pen = new Pen(Color.FromArgb(48, BorderC), 1f)) g.DrawLine(pen, PAD, DIVY, W - PAD, DIVY);
     g.DrawString("// FLUXO DE TELEMETRIA", fLbl, B(Faint), PAD - 1, DIVY + 6);
     string ev = "EVENTOS " + actions.ToString("D4");
-    g.DrawString(ev, fTiny, B(AmberDeep), W - PAD - g.MeasureString(ev, fTiny).Width, DIVY + 7);
+    g.DrawString(ev, fTiny, B(vSub), W - PAD - g.MeasureString(ev, fTiny).Width, DIVY + 7);
 
     // feed (ultimas N, mais nova embaixo); a fala do Jarvis (JVS) pisca ao chegar
     int start = Math.Max(0, feed.Count - FEEDN);
@@ -513,7 +542,8 @@ class JarvisHudWF : Form {
         continue;
       }
       float h = Math.Max(3f, (v / (float)smax) * (SPKBASE - SPKTOP));
-      Color cc = b == n - 1 ? AmberBright : (b >= 11 ? Amber : (b >= 6 ? AmberMut : AmberDeep));
+      Color cc = b == n - 1 ? (fable ? MythPale : AmberBright)
+        : (b >= 11 ? (fable ? MythGold : Amber) : (b >= 6 ? (fable ? Ember : AmberMut) : (fable ? EmberDeep : AmberDeep)));
       g.FillRectangle(B(cc), bx, SPKBASE - h, bw, h);
     }
   }
@@ -553,60 +583,104 @@ class JarvisHudWF : Form {
 
   // NUCLEO DO JARVIS: aneis girando + RAIOS DE LUZ emanando + glow radial respirando + core.
   // Anima SEMPRE (o animTimer roda continuo e repinta so o atomRect -> custo baixo).
+  // MODO FABLE 5 (classe Mythos): paleta ouro-branco, 16 raios mais longos, 3 satelites
+  // orbitando com rastro e nucleo branco puro -- mesmos primitivos baratos de sempre,
+  // nada novo entra no loop de 66ms alem de ~8 elipses.
   void DrawCore(Graphics g, float cx, float cy) {
     float R = 30;
     float a = (float)(phase * 20.0);                          // rotacao base (graus)
     double pulse = 0.5 + 0.5 * Math.Sin(phase * 2.2);         // respiro 0..1
+    Color cMain = fable ? MythGold : Amber, cHot = fable ? MythPale : AmberBright;
 
-    using (var gl = new SolidBrush(Color.FromArgb(36, AmberBright))) g.FillEllipse(gl, cx - 24, cy - 24, 48, 48);
-    using (var p = new Pen(Color.FromArgb(55, Amber), 1f)) g.DrawEllipse(p, cx - R, cy - R, 2 * R, 2 * R);
+    if (fable) {   // corona de OVERHEAT: brasa tremulando atras do nucleo (flicker de chama)
+      double fl = 0.55 + 0.45 * Math.Sin(phase * 7.3) * Math.Sin(phase * 3.1);
+      using (var hb = new SolidBrush(Color.FromArgb((int)(34 + 30 * fl), Ember))) g.FillEllipse(hb, cx - 30, cy - 30, 60, 60);
+    }
+    using (var gl = new SolidBrush(Color.FromArgb(fable ? 46 : 36, cHot))) g.FillEllipse(gl, cx - 24, cy - 24, 48, 48);
+    using (var p = new Pen(Color.FromArgb(55, cMain), 1f)) g.DrawEllipse(p, cx - R, cy - R, 2 * R, 2 * R);
     using (var p = new Pen(Color.FromArgb(22, BorderC), 1f)) g.DrawEllipse(p, cx - R - 3, cy - R - 3, 2 * R + 6, 2 * R + 6);
 
     // anel de 12 ticks girando
     var st = g.Save(); g.TranslateTransform(cx, cy); g.RotateTransform(a);
-    using (var p = new Pen(Color.FromArgb(120, Amber), 2f)) {
+    using (var p = new Pen(Color.FromArgb(120, cMain), 2f)) {
       for (int i = 0; i < 12; i++) { double r = i * Math.PI / 6; g.DrawLine(p, (float)(Math.Cos(r) * 25), (float)(Math.Sin(r) * 25), (float)(Math.Cos(r) * 29), (float)(Math.Sin(r) * 29)); }
     }
     g.Restore(st);
 
     // anel quebrado contra-girando (2 arcos)
     st = g.Save(); g.TranslateTransform(cx, cy); g.RotateTransform(-a * 1.35f);
-    using (var p = new Pen(Color.FromArgb(200, AmberBright), 2.3f)) {
+    using (var p = new Pen(Color.FromArgb(200, cHot), 2.3f)) {
       p.StartCap = LineCap.Round; p.EndCap = LineCap.Round;
       g.DrawArc(p, -21, -21, 42, 42, 18, 116); g.DrawArc(p, -21, -21, 42, 42, 198, 116);
     }
     g.Restore(st);
 
-    // RAIOS DE LUZ emanando do centro (no lugar do triangulo): giram devagar e respiram
+    // RAIOS DE LUZ emanando do centro: giram devagar e respiram (Fable = 16 e mais longos)
     st = g.Save(); g.TranslateTransform(cx, cy); g.RotateTransform(a * 0.55f);
-    int rays = 12;
+    int rays = fable ? 16 : 12;
+    double lenL = fable ? 18.0 : 16.0, lenS = fable ? 11.0 : 9.5;
     for (int i = 0; i < rays; i++) {
       double ang = i * 2 * Math.PI / rays;
       bool lng = (i % 2 == 0);
-      double len = (lng ? 16.0 : 9.5) + pulse * (lng ? 4.5 : 2.5);
+      double len = (lng ? lenL : lenS) + pulse * (lng ? 4.5 : 2.5);
       float x1 = (float)(Math.Cos(ang) * 3.2), y1 = (float)(Math.Sin(ang) * 3.2);
       float x2 = (float)(Math.Cos(ang) * len), y2 = (float)(Math.Sin(ang) * len);
       int al = (int)((lng ? 205 : 125) * (0.55 + 0.45 * pulse));
-      using (var p = new Pen(Color.FromArgb(al, lng ? AmberBright : Amber), lng ? 2.1f : 1.4f)) { p.StartCap = LineCap.Round; p.EndCap = LineCap.Round; g.DrawLine(p, x1, y1, x2, y2); }
+      using (var p = new Pen(Color.FromArgb(al, lng ? cHot : cMain), lng ? 2.1f : 1.4f)) { p.StartCap = LineCap.Round; p.EndCap = LineCap.Round; g.DrawLine(p, x1, y1, x2, y2); }
     }
     g.Restore(st);
 
-    // glow radial "emanando" (respira em raio e brilho)
+    // satelites Mythos (so no Fable): 3 pontos de ouro-branco orbitando + rastro + orbita tenue
+    if (fable) {
+      using (var p = new Pen(Color.FromArgb(26, MythGold), 1f)) g.DrawEllipse(p, cx - 35, cy - 35, 70, 70);
+      for (int i = 0; i < 3; i++) {
+        double ang = -phase * 0.9 + i * 2 * Math.PI / 3;
+        float sxp = cx + (float)(Math.Cos(ang) * 35), syp = cy + (float)(Math.Sin(ang) * 35);
+        double tg = ang + 0.30;
+        using (var tr = new SolidBrush(Color.FromArgb(80, MythGold))) g.FillEllipse(tr, cx + (float)(Math.Cos(tg) * 35) - 1.3f, cy + (float)(Math.Sin(tg) * 35) - 1.3f, 2.6f, 2.6f);
+        using (var sb = new SolidBrush(Color.FromArgb(235, MythPale))) g.FillEllipse(sb, sxp - 2f, syp - 2f, 4f, 4f);
+      }
+    }
+
+    // glow radial "emanando" (respira em raio e brilho; Fable = mais branco e intenso)
     float gr = 13f + (float)(pulse * 4.5);
     using (var gpath = new GraphicsPath()) {
       gpath.AddEllipse(cx - gr, cy - gr, 2 * gr, 2 * gr);
       using (var pgb = new PathGradientBrush(gpath)) {
         pgb.CenterPoint = new PointF(cx, cy);
-        pgb.CenterColor = Color.FromArgb((int)(150 + 75 * pulse), 255, 240, 205);
-        pgb.SurroundColors = new Color[] { Color.FromArgb(0, Amber) };
+        pgb.CenterColor = fable ? Color.FromArgb((int)(165 + 70 * pulse), 255, 248, 228) : Color.FromArgb((int)(150 + 75 * pulse), 255, 240, 205);
+        pgb.SurroundColors = new Color[] { Color.FromArgb(0, fable ? Ember : cMain) };
         g.FillPath(pgb, gpath);
       }
     }
 
-    // nucleo incandescente + branco quente
-    float pr = 4.6f + (float)(pulse * 1.7);
-    using (var b = new SolidBrush(Amber)) g.FillEllipse(b, cx - pr, cy - pr, 2 * pr, 2 * pr);
-    using (var b = new SolidBrush(Color.FromArgb(255, 255, 248, 232))) g.FillEllipse(b, cx - 2.2f, cy - 2.2f, 4.4f, 4.4f);
+    // nucleo incandescente + branco quente (Fable = maior, com miolo branco puro)
+    float pr = (fable ? 5.2f : 4.6f) + (float)(pulse * (fable ? 2.1 : 1.7));
+    using (var b = new SolidBrush(cMain)) g.FillEllipse(b, cx - pr, cy - pr, 2 * pr, 2 * pr);
+    using (var b = new SolidBrush(fable ? Color.White : Color.FromArgb(255, 255, 248, 232))) g.FillEllipse(b, cx - 2.2f, cy - 2.2f, 4.4f, 4.4f);
+  }
+
+  // badge "FABLE 5" no cabecalho: estrela de 4 pontas desenhada (sem depender de glifo)
+  // + texto ouro-branco, brilho respirando em passos de 1s (fora do atomRect -> pintado
+  // apenas no Invalidate cheio de 1Hz, custo desprezivel).
+  void DrawFableBadge(Graphics g, float x, float y) {
+    double k = 0.5 + 0.5 * Math.Sin(NowMs() / 650.0);
+    string txt = "FABLE 5";
+    var sz = g.MeasureString(txt, fChip);
+    float w = sz.Width + 20, h = 15;
+    using (var gp = RoundedPath(x, y, w, h, 4)) {
+      using (var fill = new SolidBrush(Color.FromArgb((int)(26 + 30 * k), MythGold))) g.FillPath(fill, gp);
+      using (var pen = new Pen(Color.FromArgb((int)(150 + 90 * k), MythGold), 1f)) g.DrawPath(pen, gp);
+    }
+    float sx = x + 9, sy = y + h / 2f;
+    var pts = new PointF[8];
+    for (int i = 0; i < 8; i++) {
+      double ang = -Math.PI / 2 + i * Math.PI / 4;
+      float rr = (i % 2 == 0) ? 4.4f : 1.5f;
+      pts[i] = new PointF(sx + (float)(Math.Cos(ang) * rr), sy + (float)(Math.Sin(ang) * rr));
+    }
+    g.FillPolygon(B(Color.FromArgb((int)(190 + 65 * k), MythPale)), pts);
+    g.DrawString(txt, fChip, B(Color.FromArgb((int)(200 + 55 * k), MythPale)), x + 15, y + 3.4f);
   }
 
   string Elapsed() {

@@ -3,7 +3,7 @@
 // Custo em R$ (cotação USD-BRL ao vivo, cache 12h) + créditos (1 cr = US$0,01).
 // Config no settings.json: "statusLine": { "type": "command", "command": "node .../statusline.mjs" }
 import { execSync, spawn } from "child_process";
-import { readFileSync, existsSync } from "fs";
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 
@@ -48,6 +48,21 @@ const DIM = "\x1b[38;5;240m";  // separadores
 const B = "\x1b[1m", R = "\x1b[0m";
 
 const model = d.model?.display_name || "Claude";
+
+// grava o MODELO da sessão pro resto do Jarvis (HUD e falas do modo FABLE 5):
+// hud-sessions/<sid>/model.txt = linha1 id, linha2 nome. Escreve a CADA render
+// (mtime fresco = o model.mjs dos hooks nem precisa farejar o transcript).
+const modelId = String(d.model?.id || "");
+try {
+  const sid = String(d.session_id || "").replace(/[^A-Za-z0-9_-]/g, "");
+  if (sid && modelId) {
+    const mdir = join(__dir, "hud-sessions", sid);
+    if (!existsSync(mdir)) mkdirSync(mdir, { recursive: true });
+    writeFileSync(join(mdir, "model.txt"), `${modelId}\n${model}`);
+  }
+} catch { /* statusline nunca quebra por isso */ }
+const fable = /fable/i.test(modelId);   // Fable 5 = classe Mythos, ganha estrela dourada
+
 const cwd = d.workspace?.current_dir || process.cwd();
 const dir = cwd.split(/[\\/]/).filter(Boolean).pop() || cwd;
 
@@ -68,9 +83,10 @@ const hh = String(now.getHours()).padStart(2, "0");
 const mm = String(now.getMinutes()).padStart(2, "0");
 
 const sep = `${DIM} │ ${R}`;
+const GOLD = "\x1b[38;5;220m";  // ouro-branco Mythos (só pro Fable 5)
 const parts = [
   `${AMB}${B}◈ J.A.R.V.I.S.${R} ${OK}online${R}`,
-  `${TXT}${model}${R}`,
+  fable ? `${GOLD}${B}✦ ${model}${R}` : `${TXT}${model}${R}`,
   `${AMB}${dir}${R}`,
 ];
 if (branch) parts.push(`${TXT}⎇ ${branch}${R}`);

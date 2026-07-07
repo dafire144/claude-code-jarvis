@@ -11,8 +11,8 @@ const ROOT = path.join(__dirname, '..', 'hud-sessions');
 
 // argumentos (depois do caminho do app)
 const argv = process.argv.slice(app.isPackaged ? 1 : 2);
-let mode = 'run', sid = 'global', shotOut = null, shotP = 0.3;
-if (argv[0] === '--shot') { mode = 'shot'; shotOut = argv[1]; }
+let mode = 'run', sid = 'global', shotOut = null, shotP = 0.3, shotFable = false;
+if (argv[0] === '--shot') { mode = 'shot'; shotOut = argv[1]; shotFable = argv[2] === 'fable'; }
 else if (argv[0] === '--shot-shut') { mode = 'shotshut'; shotOut = argv[1]; shotP = parseFloat(argv[2] || '0.3'); }
 else if (argv[0]) { sid = argv[0]; }
 
@@ -37,7 +37,7 @@ app.whenReady().then(() => {
   try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch (e) {}
 
   const q = 'sid=' + encodeURIComponent(cleanSid) + '&dir=' + encodeURIComponent(sdir) +
-            '&mode=' + mode + '&p=' + shotP;
+            '&mode=' + mode + '&p=' + shotP + (shotFable ? '&fable=1' : '');
   win.loadFile(path.join(__dirname, 'index.html'), { search: q });
 
   if (mode === 'run') {

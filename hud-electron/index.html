@@ -29,6 +29,15 @@
   .stxt{color:var(--online);letter-spacing:.05em}
   .close{color:var(--faint);font-family:var(--mono);font-size:12px;cursor:pointer;-webkit-app-region:no-drag;padding:0 3px}
   .close:hover{color:var(--amber)}
+  /* modo FABLE 5 (classe Mythos): badge ouro-branco cintilante + moldura elevada */
+  #fbadge{display:none;margin-left:8px;vertical-align:2px;font-family:var(--mono);font-size:8px;font-weight:700;letter-spacing:.08em;color:#FFF4DC;border:1px solid rgba(255,217,138,.8);border-radius:3px;padding:1.5px 6px;background:linear-gradient(110deg,rgba(255,217,138,.10) 25%,rgba(255,244,220,.42) 50%,rgba(255,217,138,.10) 75%);background-size:220% 100%;animation:fshine 2.8s linear infinite;text-shadow:0 0 7px rgba(255,217,138,.75)}
+  @keyframes fshine{0%{background-position:200% 0}100%{background-position:-120% 0}}
+  /* OVERHEAT: fundo aquecido + moldura pulsando entre ouro e brasa (forca total) */
+  .hud.fable{background:linear-gradient(150deg,#26150A,#0F0603);animation:hudheat 2.5s ease-in-out infinite alternate}
+  @keyframes hudheat{
+    0%{border-color:rgba(255,217,138,.92);box-shadow:0 10px 40px rgba(0,0,0,.5),0 0 26px rgba(255,217,138,.22),inset 0 0 60px rgba(255,217,138,.05)}
+    100%{border-color:rgba(255,122,60,.95);box-shadow:0 10px 40px rgba(0,0,0,.5),0 0 30px rgba(255,122,60,.30),inset 0 0 60px rgba(255,122,60,.07)}
+  }
   .sess{position:absolute;top:31px;left:15px;right:14px;font-family:var(--mono);font-size:9px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   /* reactor */
   #reactor{position:absolute;left:12px;top:50px;width:80px;height:80px}
@@ -65,7 +74,7 @@
 <div class="hud" id="hud">
   <div class="drag"></div>
   <div class="head">
-    <div class="brand">J.A.R.V.I.S.</div>
+    <div class="brand">J.A.R.V.I.S.<span id="fbadge">✦ FABLE 5</span></div>
     <div class="hstat"><span class="hago" id="hago"></span><span class="dot" id="dot"></span><span class="stxt" id="stxt">ONLINE</span><span class="close" id="close">×</span></div>
   </div>
   <div class="sess" id="sess">// sessao</div>
@@ -101,10 +110,13 @@ let title = '', startTs = 0, lastFeedTs = 0, feed = [], actions = 0, endShownAt 
 let actTs = [], apm = 0, apmPeak = 0, apmRef = 0, apmHist = new Array(10).fill(0), apmHistIdx = 0;
 let spark = new Array(16).fill(0), load = 0, taskDone = 0, taskTotal = 0;
 let closing = false, bornMs = Date.now();
+let fable = false;   // sessao rodando o FABLE 5 (classe Mythos) -> visual especial
 const el = (id) => document.getElementById(id);
 
 function readState() {
   try { const l = fs.readFileSync(P('meta.txt'), 'utf8').split('\n'); title = l[0] || ''; if (l[1]) { const t = Number(l[1].trim()); if (t) startTs = t; } } catch (e) {}
+  // modo FABLE 5: statusline/hooks gravam o modelo da sessao em model.txt (linha 1 = id)
+  try { fable = fs.readFileSync(P('model.txt'), 'utf8').split('\n')[0].trim().toLowerCase().includes('fable'); } catch (e) { fable = false; }
   try { const p = fs.readFileSync(P('progress.txt'), 'utf8').split('\t'); taskDone = Number(p[0]) || 0; taskTotal = Number(p[1]) || 0; } catch (e) {}
   try {
     const raw = fs.readFileSync(P('feed.txt'), 'utf8');
@@ -145,25 +157,32 @@ function status() { if (fs.existsSync(P('end'))) return 'ENCERRADO'; return (Dat
 
 function renderDOM() {
   const st = status();
-  const sc = st === 'OPERANDO' ? 'var(--amber)' : st === 'ENCERRADO' ? 'var(--faint)' : 'var(--online)';
-  el('stxt').textContent = st; el('stxt').style.color = sc; el('dot').style.background = sc;
+  // OVERHEAT (Fable 5): numeros incandescentes, brasa nos subtextos e status "PLENA CARGA"
+  const VAL = fable ? '#FFD98A' : 'var(--amber)', EMB = fable ? '#FF7A3C' : 'var(--deep)';
+  const sc = st === 'OPERANDO' ? (fable ? '#FF7A3C' : 'var(--amber)') : st === 'ENCERRADO' ? 'var(--faint)' : 'var(--online)';
+  el('fbadge').style.display = fable ? 'inline-block' : 'none';
+  el('hud').classList.toggle('fable', fable);
+  el('stxt').textContent = (fable && st === 'OPERANDO') ? 'PLENA CARGA' : st;
+  el('stxt').style.color = sc; el('dot').style.background = sc;
   el('hago').textContent = agoTxt(); el('hago').style.color = agoColor();
   el('sess').textContent = title ? '// ' + title : '// sessao (CLI)';
-  el('tempoV').textContent = elapsed();
-  el('acoesV').textContent = actions;
+  el('tempoV').textContent = elapsed(); el('tempoV').style.color = VAL;
+  el('acoesV').textContent = actions; el('acoesV').style.color = VAL;
+  el('acoesU').style.color = EMB; el('apmPk').style.color = EMB; el('cargaS').style.color = EMB; el('eventsC').style.color = EMB;
   const hasTasks = taskTotal > 0;
   el('cargaL').textContent = hasTasks ? 'ATIVIDADE' : 'CARGA';
   const pct = hasTasks ? (taskTotal ? taskDone / taskTotal : 0) : load;
   el('barFill').style.width = Math.max(pct > 0 ? 9 : 0, pct * 112) + 'px';
-  el('cargaP').textContent = Math.round(pct * 100) + '%'; el('cargaP').style.color = pct > 0 ? 'var(--amber)' : 'var(--faint)';
-  el('cargaS').textContent = hasTasks ? (taskDone + '/' + taskTotal) : (load > 0.05 ? 'reator ativo' : 'em repouso');
-  el('apmV').textContent = apm; el('apmV').style.color = apm > 0 ? 'var(--amber)' : 'var(--faint)';
+  el('barFill').style.background = fable ? 'linear-gradient(90deg,#B5471F,#FFD98A,#FFF4DC)' : '';
+  el('cargaP').textContent = Math.round(pct * 100) + '%'; el('cargaP').style.color = pct > 0 ? VAL : 'var(--faint)';
+  el('cargaS').textContent = hasTasks ? (taskDone + '/' + taskTotal) : (load > 0.05 ? (fable ? 'a plena carga' : 'reator ativo') : 'em repouso');
+  el('apmV').textContent = apm; el('apmV').style.color = apm > 0 ? VAL : 'var(--faint)';
   el('apmPk').textContent = 'pico ' + apmPeak;
   const tr = apm - apmRef; el('trend').textContent = tr > 0 ? '▲' : tr < 0 ? '▼' : '—'; el('trend').style.color = tr > 0 ? 'var(--online)' : tr < 0 ? 'var(--red)' : 'var(--faint)';
   // sparkline
   const sp = el('spark'); if (sp.children.length !== 16) { sp.innerHTML = ''; for (let i = 0; i < 16; i++) sp.appendChild(document.createElement('i')); }
   let smax = 1; for (const v of spark) if (v > smax) smax = v;
-  for (let i = 0; i < 16; i++) { const v = spark[i], bar = sp.children[i]; bar.style.height = (v <= 0 ? 2 : Math.max(3, (v / smax) * 15)) + 'px'; bar.style.background = v <= 0 ? 'rgba(108,120,110,.45)' : (i === 15 ? 'var(--bright)' : i >= 11 ? 'var(--amber)' : i >= 6 ? 'var(--mut)' : 'var(--deep)'); }
+  for (let i = 0; i < 16; i++) { const v = spark[i], bar = sp.children[i]; bar.style.height = (v <= 0 ? 2 : Math.max(3, (v / smax) * 15)) + 'px'; bar.style.background = v <= 0 ? 'rgba(108,120,110,.45)' : (i === 15 ? (fable ? '#FFF4DC' : 'var(--bright)') : i >= 11 ? (fable ? '#FFD98A' : 'var(--amber)') : i >= 6 ? (fable ? '#FF7A3C' : 'var(--mut)') : (fable ? '#B5471F' : 'var(--deep)')); }
   el('eventsC').textContent = 'EVENTOS ' + String(actions).padStart(4, '0');
   // feed
   const fc = el('feed'); fc.innerHTML = '';
@@ -185,24 +204,42 @@ function drawReactor() {
   const w = rc.width, h = rc.height, cx = w / 2, cy = h / 2, S = w / 80; // 2x DPR (canvas 160 p/ 80px)
   const phase = (Date.now() - t0) / 500;
   const a = phase * 20 * Math.PI / 180, pulse = 0.5 + 0.5 * Math.sin(phase * 2.2);
+  // paleta: ambar de serie; FABLE 5 = ouro-branco classe Mythos (espelha o HUD nativo)
+  const MAIN = fable ? '255,217,138' : '232,178,74', HOT = fable ? '255,244,220' : '244,194,92';
   rctx.clearRect(0, 0, w, h); rctx.save(); rctx.scale(S, S); rctx.translate(40, 40);
+  // corona de OVERHEAT: brasa tremulando atras do nucleo (so no Fable)
+  if (fable) {
+    const fl = 0.55 + 0.45 * Math.sin(phase * 7.3) * Math.sin(phase * 3.1);
+    rctx.beginPath(); rctx.arc(0, 0, 30, 0, 7); rctx.fillStyle = 'rgba(255,122,60,' + (0.13 + 0.12 * fl).toFixed(3) + ')'; rctx.fill();
+  }
   // halo + aros
-  rctx.beginPath(); rctx.arc(0, 0, 24, 0, 7); rctx.fillStyle = 'rgba(244,194,92,.09)'; rctx.fill();
-  rctx.beginPath(); rctx.arc(0, 0, 30, 0, 7); rctx.strokeStyle = 'rgba(232,178,74,.35)'; rctx.lineWidth = 1; rctx.stroke();
+  rctx.beginPath(); rctx.arc(0, 0, 24, 0, 7); rctx.fillStyle = 'rgba(' + HOT + ',' + (fable ? '.13' : '.09') + ')'; rctx.fill();
+  rctx.beginPath(); rctx.arc(0, 0, 30, 0, 7); rctx.strokeStyle = 'rgba(' + MAIN + ',.35)'; rctx.lineWidth = 1; rctx.stroke();
   rctx.beginPath(); rctx.arc(0, 0, 33, 0, 7); rctx.strokeStyle = 'rgba(201,168,119,.14)'; rctx.stroke();
   // ticks girando
-  rctx.save(); rctx.rotate(a); rctx.strokeStyle = 'rgba(232,178,74,.72)'; rctx.lineWidth = 2;
+  rctx.save(); rctx.rotate(a); rctx.strokeStyle = 'rgba(' + MAIN + ',.72)'; rctx.lineWidth = 2;
   for (let i = 0; i < 12; i++) { const r = i * Math.PI / 6; rctx.beginPath(); rctx.moveTo(Math.cos(r) * 25, Math.sin(r) * 25); rctx.lineTo(Math.cos(r) * 29, Math.sin(r) * 29); rctx.stroke(); } rctx.restore();
   // anel quebrado contra-girando
-  rctx.save(); rctx.rotate(-a * 1.35); rctx.strokeStyle = 'rgba(244,194,92,.85)'; rctx.lineWidth = 2.3; rctx.lineCap = 'round';
+  rctx.save(); rctx.rotate(-a * 1.35); rctx.strokeStyle = 'rgba(' + HOT + ',.85)'; rctx.lineWidth = 2.3; rctx.lineCap = 'round';
   rctx.beginPath(); rctx.arc(0, 0, 21, 0.31, 2.34); rctx.stroke(); rctx.beginPath(); rctx.arc(0, 0, 21, 3.46, 5.49); rctx.stroke(); rctx.restore();
-  // raios emanando + respirando
+  // raios emanando + respirando (Fable = 16 e mais longos)
+  const RAYS = fable ? 16 : 12, LENL = fable ? 18 : 16, LENS = fable ? 11 : 9.5;
   rctx.save(); rctx.rotate(a * 0.55); rctx.lineCap = 'round';
-  for (let i = 0; i < 12; i++) { const ang = i * 2 * Math.PI / 12, lng = i % 2 === 0, len = (lng ? 16 : 9.5) + pulse * (lng ? 4.5 : 2.5), al = (lng ? .8 : .5) * (.55 + .45 * pulse); rctx.strokeStyle = 'rgba(' + (lng ? '244,194,92' : '232,178,74') + ',' + al.toFixed(2) + ')'; rctx.lineWidth = lng ? 2.1 : 1.4; rctx.beginPath(); rctx.moveTo(Math.cos(ang) * 3.2, Math.sin(ang) * 3.2); rctx.lineTo(Math.cos(ang) * len, Math.sin(ang) * len); rctx.stroke(); } rctx.restore();
-  // glow radial + core
-  const gr = 13 + pulse * 4.5, g = rctx.createRadialGradient(0, 0, 0, 0, 0, gr); g.addColorStop(0, 'rgba(255,240,205,' + (0.6 + 0.3 * pulse).toFixed(2) + ')'); g.addColorStop(1, 'rgba(232,178,74,0)'); rctx.fillStyle = g; rctx.beginPath(); rctx.arc(0, 0, gr, 0, 7); rctx.fill();
-  const pr = 4.6 + pulse * 1.7; rctx.fillStyle = '#E8B24A'; rctx.beginPath(); rctx.arc(0, 0, pr, 0, 7); rctx.fill();
-  rctx.fillStyle = '#FFF8E8'; rctx.beginPath(); rctx.arc(0, 0, 2.2, 0, 7); rctx.fill();
+  for (let i = 0; i < RAYS; i++) { const ang = i * 2 * Math.PI / RAYS, lng = i % 2 === 0, len = (lng ? LENL : LENS) + pulse * (lng ? 4.5 : 2.5), al = (lng ? .8 : .5) * (.55 + .45 * pulse); rctx.strokeStyle = 'rgba(' + (lng ? HOT : MAIN) + ',' + al.toFixed(2) + ')'; rctx.lineWidth = lng ? 2.1 : 1.4; rctx.beginPath(); rctx.moveTo(Math.cos(ang) * 3.2, Math.sin(ang) * 3.2); rctx.lineTo(Math.cos(ang) * len, Math.sin(ang) * len); rctx.stroke(); } rctx.restore();
+  // satelites Mythos (so no Fable): 3 pontos orbitando + rastro + orbita tenue
+  if (fable) {
+    rctx.strokeStyle = 'rgba(255,217,138,.10)'; rctx.lineWidth = 1;
+    rctx.beginPath(); rctx.arc(0, 0, 35, 0, 7); rctx.stroke();
+    for (let i = 0; i < 3; i++) {
+      const ang = -phase * 0.9 + i * 2 * Math.PI / 3;
+      rctx.fillStyle = 'rgba(255,217,138,.31)'; rctx.beginPath(); rctx.arc(Math.cos(ang + .3) * 35, Math.sin(ang + .3) * 35, 1.3, 0, 7); rctx.fill();
+      rctx.fillStyle = 'rgba(255,244,220,.92)'; rctx.beginPath(); rctx.arc(Math.cos(ang) * 35, Math.sin(ang) * 35, 2, 0, 7); rctx.fill();
+    }
+  }
+  // glow radial + core (Fable = mais branco, nucleo maior com miolo branco puro)
+  const gr = 13 + pulse * 4.5, g = rctx.createRadialGradient(0, 0, 0, 0, 0, gr); g.addColorStop(0, 'rgba(' + (fable ? '255,248,228' : '255,240,205') + ',' + (0.6 + 0.3 * pulse).toFixed(2) + ')'); g.addColorStop(1, 'rgba(' + MAIN + ',0)'); rctx.fillStyle = g; rctx.beginPath(); rctx.arc(0, 0, gr, 0, 7); rctx.fill();
+  const pr = (fable ? 5.2 : 4.6) + pulse * (fable ? 2.1 : 1.7); rctx.fillStyle = fable ? '#FFD98A' : '#E8B24A'; rctx.beginPath(); rctx.arc(0, 0, pr, 0, 7); rctx.fill();
+  rctx.fillStyle = fable ? '#FFFFFF' : '#FFF8E8'; rctx.beginPath(); rctx.arc(0, 0, 2.2, 0, 7); rctx.fill();
   rctx.restore();
   if (!closing || shutP < 0.42) requestAnimationFrame(drawReactor);
 }
@@ -240,8 +277,9 @@ function tick() {
 // ---- seed p/ QA (--shot) ----
 function seed() {
   title = 'Claude Code'; startTs = Date.now() - (7 * 60 + 23) * 1000;
+  fable = Q.get('fable') === '1';   // QA do modo FABLE 5
   const now = Date.now(); const off = [12, 9, 6.5, 4.2, 1.1];
-  const tags = [['REQ', 'Deixar o HUD do Jarvis melhor'], ['READ', 'Lendo main.js'], ['EDIT', 'Editando index.html'], ['EXEC', 'npm install electron'], ['JVS', 'Renderizando com as especificacoes, senhor.']];
+  const tags = [['REQ', 'Deixar o HUD do Jarvis melhor'], ['READ', 'Lendo main.js'], ['EDIT', 'Editando index.html'], ['EXEC', 'npm install electron'], ['JVS', fable ? 'O Fable 5 tece a solucao, senhor.' : 'Renderizando com as especificacoes, senhor.']];
   feed = []; actTs = []; actions = 0;
   const bigOff = [1, 3, 4, 7, 9, 12, 15, 19, 24, 30, 38, 47, 58];
   for (const o of bigOff) { actTs.push(now - o * 1000); actions++; }

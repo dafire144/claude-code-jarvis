@@ -8,7 +8,7 @@
   <img src="docs/shutdown.png" width="420" alt="Jarvis HUD cooling down / shutting off" />
 </p>
 
-It hooks into Claude Code's event system (no polling, no cost) and reacts with pre-recorded lines: *"Positivo, senhor. Iniciando o trabalho."* when you send a prompt, *"Tarefa concluída, senhor."* when it finishes, energetic lines when you tell it to floor it, a gentle nudge at 3 a.m., and so on — **297 lines across 32 categories**, chosen by intent.
+It hooks into Claude Code's event system (no polling, no cost) and reacts with pre-recorded lines: *"Positivo, senhor. Iniciando o trabalho."* when you send a prompt, *"Tarefa concluída, senhor."* when it finishes, energetic lines when you tell it to floor it, a gentle nudge at 3 a.m., and so on — **321 lines across 35 categories**, chosen by intent.
 
 > The voice is a **Brazilian-Portuguese butler** (think Iron Man's JARVIS, but he calls you *"senhor"*). Fully pre-recorded, so playback is instant and free.
 
@@ -21,7 +21,12 @@ It hooks into Claude Code's event system (no polling, no cost) and reacts with p
 - **Robotic blip** — a short synth lead-in before each line.
 - **Live desktop HUD** *(Windows)* — a frameless, always-on-top mini-panel per session: animated arc-reactor core emanating light, uptime, actions, APM + trend, activity sparkline, and a color-coded telemetry feed of what Claude is doing.
 - **Cinematic power-down** *(Windows)* — when a task ends the HUD **cools down** (amber → steel-blue, every element recoloring), **collapses like an old CRT**, and blinks out.
-- **Status line** — an optional Claude Code status line with model, folder, branch, live cost and clock.
+- **FABLE 5 overdrive mode** — when a session runs Anthropic's most powerful model (Claude Fable 5), the whole HUD goes into **overheat**: heated background, border pulsing between gold and ember, white-hot reactor core with 16 rays and 3 orbiting satellites, molten metrics, a shimmering **"✦ FABLE 5"** badge and a *"PLENA CARGA"* status — plus **24 dedicated voice lines** (an epic once-per-session greeting and occasional Mythos-class flavor during work). Detection is automatic: the status line records the session model, with a transcript-sniffing fallback if you don't use it.
+- **Status line** — an optional Claude Code status line with model, folder, branch, live cost and clock (it also powers the Fable 5 detection, and marks the model with a golden ✦ when Fable is running).
+
+<p align="center">
+  <img src="docs/hud-fable.png" width="420" alt="Jarvis HUD in FABLE 5 overdrive — overheated palette, white-gold reactor, FABLE 5 badge" />
+</p>
 
 ## Platform support
 
@@ -31,6 +36,7 @@ It hooks into Claude Code's event system (no polling, no cost) and reacts with p
 | Native notifications | yes (WinRT toast) | yes (osascript) |
 | Robotic blip | yes | yes |
 | Live desktop HUD + power-down animation | yes (native) | yes (Electron) |
+| FABLE 5 overdrive (HUD + voice) | yes | yes |
 | Status line | yes | yes |
 
 The desktop HUD ships two ways for the best of both worlds: a lightweight **native WinForms/GDI+** app on Windows, and a **cross-platform Electron** build on macOS — same reactor core, telemetry feed and cinematic power-down. Everyone gets the same experience.
@@ -73,7 +79,7 @@ All state is local and ephemeral; nothing leaves your machine.
 
 ## Customizing the voice
 
-The 315 `.mp3` clips in [`clips/`](clips/) are pre-generated (ElevenLabs). This public build **does not include the generator or any API key**, so the lines are fixed. Want your own voice or language? Edit [`lines.mjs`](lines.mjs) and regenerate the clips with your own ElevenLabs key — the mapping is `clips/{category}-{index}.mp3`. (A generator script is intentionally left out here to keep the repo key-free.)
+The 339 `.mp3` clips in [`clips/`](clips/) are pre-generated (ElevenLabs). This public build **does not include the generator or any API key**, so the lines are fixed. Want your own voice or language? Edit [`lines.mjs`](lines.mjs) and regenerate the clips with your own ElevenLabs key — the mapping is `clips/{category}-{index}.mp3`. (A generator script is intentionally left out here to keep the repo key-free.)
 
 ## Roadmap
 
