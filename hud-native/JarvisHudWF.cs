@@ -173,13 +173,16 @@ class JarvisHudWF : Form {
     dataTimer.Tick += delegate { DataTick(); };
     dataTimer.Start();
 
-    animTimer = new WinTimer(); animTimer.Interval = 66;
+    animTimer = new WinTimer(); animTimer.Interval = fable ? 33 : 66;   // FABLE = nucleo a 30fps
     animTimer.Tick += delegate {
       if (closing) {
         if (NowMs() - closeStartMs >= SHUT_MS) { animTimer.Stop(); RealClose(); return; }
         Invalidate(); return;                       // repinta a janela toda durante o desligamento
       }
-      phase += 0.13; Invalidate(atomRect);
+      // fase pelo RELOGIO (nao por incremento): velocidade estavel em qualquer fps,
+      // sem "saltos" se um tick atrasar -- os satelites do Fable denunciavam (07/07)
+      phase = (NowMs() - bornMs) / 500.0;
+      Invalidate(atomRect);
     };
     animTimer.Start();    // nucleo anima SEMPRE (repinta so o atomRect -> custo baixo)
 
@@ -202,6 +205,10 @@ class JarvisHudWF : Form {
     if (grew) ReadMeta();
     ReadProgress();
     ReadModel();          // modo FABLE 5 acende/apaga junto com o modelo da sessao
+    if (animTimer != null && !closing) {            // overdrive = nucleo a 30fps (segue so o atomRect)
+      int want = fable ? 33 : 66;
+      if (animTimer.Interval != want) animTimer.Interval = want;
+    }
     Recompute();          // recalcula APM/carga/sparkline 1x/s (barato)
     UpdateStatus();
     // encerra sozinho 20s apos o fim da sessao (com animacao de desligamento)
@@ -634,9 +641,9 @@ class JarvisHudWF : Form {
     if (fable) {
       using (var p = new Pen(Color.FromArgb(26, MythGold), 1f)) g.DrawEllipse(p, cx - 35, cy - 35, 70, 70);
       for (int i = 0; i < 3; i++) {
-        double ang = -phase * 0.9 + i * 2 * Math.PI / 3;
+        double ang = -phase * 0.55 + i * 2 * Math.PI / 3;   // orbita mais lenta = movimento liso a 30fps
         float sxp = cx + (float)(Math.Cos(ang) * 35), syp = cy + (float)(Math.Sin(ang) * 35);
-        double tg = ang + 0.30;
+        double tg = ang + 0.22;
         using (var tr = new SolidBrush(Color.FromArgb(80, MythGold))) g.FillEllipse(tr, cx + (float)(Math.Cos(tg) * 35) - 1.3f, cy + (float)(Math.Sin(tg) * 35) - 1.3f, 2.6f, 2.6f);
         using (var sb = new SolidBrush(Color.FromArgb(235, MythPale))) g.FillEllipse(sb, sxp - 2f, syp - 2f, 4f, 4f);
       }

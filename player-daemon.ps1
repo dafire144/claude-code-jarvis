@@ -31,6 +31,19 @@ $LogFile = Join-Path $Dir "jarvis.log"
 function Log([string]$m) { try { Add-Content -Path $LogFile -Value ((Get-Date).ToUniversalTime().ToString("o") + " daemon: " + $m) } catch {} }
 function Now-Ms { return [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
 
+# Duracao REAL do clipe: metadata do MediaPlayer (poll ate 1,5s) e, se nao carregar,
+# estimativa pelo tamanho do arquivo (ElevenLabs mp3 128kbps CBR ~= 16000 bytes/s).
+# O fallback FIXO de 4s cortava falas longas no meio (bug 07/07: clipes fable de 5-8s
+# paravam em 4,15s quando a NaturalDuration nao carregava a tempo).
+function Get-ClipSeconds([object]$player, [string]$file, [double]$fallback) {
+  $t = 0
+  while (-not $player.NaturalDuration.HasTimeSpan -and $t -lt 1500) { Start-Sleep -Milliseconds 100; $t += 100 }
+  if ($player.NaturalDuration.HasTimeSpan) { return $player.NaturalDuration.TimeSpan.TotalSeconds }
+  $sz = 0; try { $sz = (Get-Item -LiteralPath $file -ErrorAction Stop).Length } catch {}
+  if ($sz -gt 0) { return [Math]::Max(1.0, $sz / 16000.0) }
+  return $fallback
+}
+
 # Toca prefixo (opcional) + fala principal EMENDADOS (pre-carga paralela, sem gap interno).
 function Play-Item([string]$prefixFile, [string]$mainFile) {
   # blip robotico (lead-in). WAV curto -> System.Media.SoundPlayer.PlaySync (confiavel e
@@ -48,11 +61,12 @@ function Play-Item([string]$prefixFile, [string]$mainFile) {
   }
   Start-Sleep -Milliseconds 600   # bufferiza os dois em paralelo
   if ($pre) {
-    $d = 2.0; if ($pre.NaturalDuration.HasTimeSpan) { $d = $pre.NaturalDuration.TimeSpan.TotalSeconds }
-    $pre.Play(); Start-Sleep -Milliseconds ([int]($d * 1000) + 80); $pre.Stop(); $pre.Close()
+    $d = Get-ClipSeconds $pre $prefixFile 2.0
+    $pre.Play(); Start-Sleep -Milliseconds ([int]($d * 1000) + 120); $pre.Stop(); $pre.Close()
   }
-  $d = 4.0; if ($main.NaturalDuration.HasTimeSpan) { $d = $main.NaturalDuration.TimeSpan.TotalSeconds }
-  $main.Play(); Start-Sleep -Milliseconds ([int]($d * 1000) + 150); $main.Stop(); $main.Close()
+  $d = Get-ClipSeconds $main $mainFile 4.0
+  Log ("dur=" + [Math]::Round($d, 1) + "s " + (Split-Path $mainFile -Leaf))
+  $main.Play(); Start-Sleep -Milliseconds ([int]($d * 1000) + 250); $main.Stop(); $main.Close()
 }
 
 $LastEndFile = Join-Path $Dir ".last-sessionend"
