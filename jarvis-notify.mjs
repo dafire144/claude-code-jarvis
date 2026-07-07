@@ -4,7 +4,7 @@
 //   node ~/.claude/jarvis/jarvis-notify.mjs <categoria>
 // Categorias: stop, notify, prompt, fanout, subagent, sessionstart, compact,
 //             credits, sessionend, code, terminal, search, files, deploy, git
-import { readdirSync, existsSync, statSync, writeFileSync, readFileSync, appendFileSync, mkdirSync } from "fs";
+import { readdirSync, existsSync, statSync, writeFileSync, readFileSync, appendFileSync, mkdirSync, rmSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { spawnSync, spawn } from "child_process";
@@ -48,6 +48,8 @@ const COOLDOWN = {
   fable: 240_000,       // modo FABLE 5: tempero ocasional, nunca papagaio
   fable_stop: 300_000,
   fable_boot: 120_000,  // várias sessões Fable abrindo juntas = só a 1ª anuncia
+  fable_off: 120_000,   // recolhimento do protocolo (troca de modelo no meio da sessão)
+  update: 72_000_000,   // aviso de atualização: no máx. 1x a cada 20h (cinto de segurança)
 };
 
 // categoria: 1º argumento, ou deriva do evento do hook (stdin)
@@ -247,7 +249,44 @@ logLine(`chamado: evt=${evt.hook_event_name || "?"} cat=${cat}${evt.source ? " s
 let cds = {};
 try { cds = JSON.parse(readFileSync(COOLDOWNS_FILE, "utf8")); } catch { /* primeira vez */ }
 
-// --- MODO FABLE 5: o modelo mais poderoso da Anthropic ganha voz própria ---
+// --- anunciador de atualização: dispara o update-check no máx. 1x/dia, num processo
+// DESTACADO (nunca bloqueia a sessão). Fora de teardown e do próprio 'update' (sem
+// recursão). O check é quem faz a rede/compare; aqui só um read barato do estado. ---
+if (cat !== "update" && evt.hook_event_name !== "SessionEnd") {
+  try {
+    let ust = {};
+    try { ust = JSON.parse(readFileSync(join(__dir, ".update-state.json"), "utf8")); } catch { /* 1a vez -> checa */ }
+    if (Date.now() - (ust.lastCheckTs || 0) >= 24 * 60 * 60 * 1000) {
+      const c = spawn(process.execPath, [join(__dir, "update-check.mjs")], { detached: true, stdio: "ignore" });
+      c.unref();
+    }
+  } catch { /* o anunciador nunca atrapalha a fala */ }
+}
+
+// --- TROCA DE MODELO em sessão aberta: o model.mjs/statusline deixam o marcador
+// model-prev quando o modelo muda. Entrando no Fable -> saudação do protocolo;
+// saindo -> recolhimento (fable_off). O HUD faz a transição visual por conta própria. ---
+if (evt.hook_event_name !== "SessionEnd") {
+  try {
+    const tdir = join(__dir, "hud-sessions", String(evt.session_id || "").replace(/[^A-Za-z0-9_-]/g, ""));
+    const prevFile = join(tdir, "model-prev");
+    if (existsSync(prevFile)) {
+      const prev = readFileSync(prevFile, "utf8").trim();
+      try { rmSync(prevFile); } catch { /* outro hook consumiu junto */ }
+      const nowId = sessionModel(__dir, evt.session_id, evt.transcript_path);
+      const okT = (c) => !COOLDOWN[c] || now - (cds[c] || 0) >= COOLDOWN[c];
+      if (!isFable(prev) && isFable(nowId) && okT("fable_boot")) {
+        logLine(`transicao: ${prev || "?"} -> ${nowId} (protocolo engajado)`);
+        cat = "fable_boot";
+      } else if (isFable(prev) && !isFable(nowId) && okT("fable_off")) {
+        logLine(`transicao: ${prev} -> ${nowId || "?"} (protocolo recolhido)`);
+        cat = "fable_off";
+      }
+    }
+  } catch { /* transição nunca atrapalha a fala normal */ }
+}
+
+// --- MODO FABLE 5: o protocolo oculto de força total do Jarvis ganha voz própria ---
 // O modelo da sessão vem de hud-sessions/<sid>/model.txt (statusline grava; sem
 // statusline o model.mjs fareja a cauda do transcript). Sessão rodando Fable:
 // 1) a PRIMEIRA fala vira a saudação épica fable_boot (1x por sessão, marcador

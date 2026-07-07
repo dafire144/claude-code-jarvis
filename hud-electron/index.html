@@ -32,6 +32,8 @@
   /* modo FABLE 5 (classe Mythos): badge ouro-branco cintilante + moldura elevada */
   #fbadge{display:none;margin-left:8px;vertical-align:2px;font-family:var(--mono);font-size:8px;font-weight:700;letter-spacing:.08em;color:#FFF4DC;border:1px solid rgba(255,217,138,.8);border-radius:3px;padding:1.5px 6px;background:linear-gradient(110deg,rgba(255,217,138,.10) 25%,rgba(255,244,220,.42) 50%,rgba(255,217,138,.10) 75%);background-size:220% 100%;animation:fshine 2.8s linear infinite;text-shadow:0 0 7px rgba(255,217,138,.75)}
   @keyframes fshine{0%{background-position:200% 0}100%{background-position:-120% 0}}
+  /* transicao cinematica entre modos: as cores do DOM deslizam junto com o heat */
+  .hud,#stxt,#fbadge,.mv,.m,.lbl,.bar > i,#dot{transition:color 1.3s ease,background-color 1.3s ease,border-color 1.3s ease,box-shadow 1.3s ease,opacity 1.3s ease}
   /* OVERHEAT: fundo aquecido + moldura pulsando entre ouro e brasa (forca total) */
   .hud.fable{background:linear-gradient(150deg,#26150A,#0F0603);animation:hudheat 2.5s ease-in-out infinite alternate}
   @keyframes hudheat{
@@ -79,6 +81,7 @@
   </div>
   <div class="sess" id="sess">// sessao</div>
   <canvas id="reactor" width="160" height="160"></canvas>
+  <canvas id="fx" width="760" height="600" style="position:absolute;left:0;top:0;width:380px;height:300px;pointer-events:none;z-index:5"></canvas>
   <div class="m lbl" id="tempoL">TEMPO DE OP.</div><div class="m mv" id="tempoV">00:00</div>
   <div class="m lbl" id="acoesL">ACOES</div><div class="m mv" id="acoesV">0</div><div class="m" id="acoesU">ops</div>
   <div class="m lbl" id="cargaL">CARGA</div>
@@ -111,12 +114,21 @@ let actTs = [], apm = 0, apmPeak = 0, apmRef = 0, apmHist = new Array(10).fill(0
 let spark = new Array(16).fill(0), load = 0, taskDone = 0, taskTotal = 0;
 let closing = false, bornMs = Date.now();
 let fable = false;   // sessao rodando o FABLE 5 (classe Mythos) -> visual especial
+// transicao CINEMATICA entre modos: heat 0=normal .. 1=FABLE (onda + recolorir tudo)
+let heat = 0, inTrans = false, transStart = 0, heatFrom = 0, heatTo = 0, modelInit = false;
+const TRANS_MS = 1600;
+function beginTrans() { inTrans = true; transStart = Date.now(); heatFrom = heat; heatTo = fable ? 1 : 0; requestAnimationFrame(fxLoop); }
 const el = (id) => document.getElementById(id);
 
 function readState() {
   try { const l = fs.readFileSync(P('meta.txt'), 'utf8').split('\n'); title = l[0] || ''; if (l[1]) { const t = Number(l[1].trim()); if (t) startTs = t; } } catch (e) {}
-  // modo FABLE 5: statusline/hooks gravam o modelo da sessao em model.txt (linha 1 = id)
-  try { fable = fs.readFileSync(P('model.txt'), 'utf8').split('\n')[0].trim().toLowerCase().includes('fable'); } catch (e) { fable = false; }
+  // modo FABLE 5: statusline/hooks gravam o modelo da sessao em model.txt (linha 1 = id).
+  // Mudou no meio da sessao? Dispara a transicao cinematica (a 1a leitura so posiciona).
+  try {
+    const nf = fs.readFileSync(P('model.txt'), 'utf8').split('\n')[0].trim().toLowerCase().includes('fable');
+    if (!modelInit) { fable = nf; heat = nf ? 1 : 0; modelInit = true; }
+    else if (nf !== fable) { fable = nf; beginTrans(); }
+  } catch (e) { if (!modelInit) { fable = false; heat = 0; modelInit = true; } }
   try { const p = fs.readFileSync(P('progress.txt'), 'utf8').split('\t'); taskDone = Number(p[0]) || 0; taskTotal = Number(p[1]) || 0; } catch (e) {}
   try {
     const raw = fs.readFileSync(P('feed.txt'), 'utf8');
@@ -160,9 +172,10 @@ function renderDOM() {
   // OVERHEAT (Fable 5): numeros incandescentes, brasa nos subtextos e status "PLENA CARGA"
   const VAL = fable ? '#FFD98A' : 'var(--amber)', EMB = fable ? '#FF7A3C' : 'var(--deep)';
   const sc = st === 'OPERANDO' ? (fable ? '#FF7A3C' : 'var(--amber)') : st === 'ENCERRADO' ? 'var(--faint)' : 'var(--online)';
-  el('fbadge').style.display = fable ? 'inline-block' : 'none';
+  el('fbadge').style.display = (fable || heat > 0.02) ? 'inline-block' : 'none';
+  el('fbadge').style.opacity = Math.max(0, Math.min(1, heat));
   el('hud').classList.toggle('fable', fable);
-  el('stxt').textContent = (fable && st === 'OPERANDO') ? 'PLENA CARGA' : st;
+  el('stxt').textContent = (heat >= 0.5 && st === 'OPERANDO') ? 'PLENA CARGA' : st;
   el('stxt').style.color = sc; el('dot').style.background = sc;
   el('hago').textContent = agoTxt(); el('hago').style.color = agoColor();
   el('sess').textContent = title ? '// ' + title : '// sessao (CLI)';
@@ -200,20 +213,28 @@ function renderDOM() {
 // ---- reator (canvas, animado) ----
 const rc = el('reactor'), rctx = rc.getContext('2d');
 let t0 = Date.now();
+function mixc(a, b, k) { return a.map((v, i) => Math.round(v + (b[i] - v) * k)).join(','); }
 function drawReactor() {
   const w = rc.width, h = rc.height, cx = w / 2, cy = h / 2, S = w / 80; // 2x DPR (canvas 160 p/ 80px)
   const phase = (Date.now() - t0) / 500;
   const a = phase * 20 * Math.PI / 180, pulse = 0.5 + 0.5 * Math.sin(phase * 2.2);
-  // paleta: ambar de serie; FABLE 5 = ouro-branco classe Mythos (espelha o HUD nativo)
-  const MAIN = fable ? '255,217,138' : '232,178,74', HOT = fable ? '255,244,220' : '244,194,92';
+  // avanco da transicao de modo (heat desliza 0<->1; fora dela e constante)
+  if (inTrans) {
+    const t = (Date.now() - transStart) / TRANS_MS;
+    if (t >= 1) { heat = heatTo; inTrans = false; el('hud').style.background = ''; }
+    else { heat = heatFrom + (heatTo - heatFrom) * ease(t);
+      el('hud').style.background = 'linear-gradient(150deg, rgb(' + mixc([18,31,23],[38,21,10],heat) + '), rgb(' + mixc([7,14,9],[15,6,3],heat) + '))'; }
+  }
+  // paleta interpolada pelo heat: ambar -> ouro-branco classe Mythos (espelha o nativo)
+  const MAIN = mixc([232,178,74],[255,217,138],heat), HOT = mixc([244,194,92],[255,244,220],heat);
   rctx.clearRect(0, 0, w, h); rctx.save(); rctx.scale(S, S); rctx.translate(40, 40);
-  // corona de OVERHEAT: brasa tremulando atras do nucleo (so no Fable)
-  if (fable) {
+  // corona de OVERHEAT: brasa tremulando atras do nucleo (entra com o calor)
+  if (heat > 0.02) {
     const fl = 0.55 + 0.45 * Math.sin(phase * 7.3) * Math.sin(phase * 3.1);
-    rctx.beginPath(); rctx.arc(0, 0, 30, 0, 7); rctx.fillStyle = 'rgba(255,122,60,' + (0.13 + 0.12 * fl).toFixed(3) + ')'; rctx.fill();
+    rctx.beginPath(); rctx.arc(0, 0, 30, 0, 7); rctx.fillStyle = 'rgba(255,122,60,' + ((0.13 + 0.12 * fl) * heat).toFixed(3) + ')'; rctx.fill();
   }
   // halo + aros
-  rctx.beginPath(); rctx.arc(0, 0, 24, 0, 7); rctx.fillStyle = 'rgba(' + HOT + ',' + (fable ? '.13' : '.09') + ')'; rctx.fill();
+  rctx.beginPath(); rctx.arc(0, 0, 24, 0, 7); rctx.fillStyle = 'rgba(' + HOT + ',' + (0.09 + 0.04 * heat).toFixed(3) + ')'; rctx.fill();
   rctx.beginPath(); rctx.arc(0, 0, 30, 0, 7); rctx.strokeStyle = 'rgba(' + MAIN + ',.35)'; rctx.lineWidth = 1; rctx.stroke();
   rctx.beginPath(); rctx.arc(0, 0, 33, 0, 7); rctx.strokeStyle = 'rgba(201,168,119,.14)'; rctx.stroke();
   // ticks girando
@@ -222,26 +243,53 @@ function drawReactor() {
   // anel quebrado contra-girando
   rctx.save(); rctx.rotate(-a * 1.35); rctx.strokeStyle = 'rgba(' + HOT + ',.85)'; rctx.lineWidth = 2.3; rctx.lineCap = 'round';
   rctx.beginPath(); rctx.arc(0, 0, 21, 0.31, 2.34); rctx.stroke(); rctx.beginPath(); rctx.arc(0, 0, 21, 3.46, 5.49); rctx.stroke(); rctx.restore();
-  // raios emanando + respirando (Fable = 16 e mais longos)
-  const RAYS = fable ? 16 : 12, LENL = fable ? 18 : 16, LENS = fable ? 11 : 9.5;
+  // raios emanando + respirando (a contagem troca no meio da transicao, sob o flash)
+  const RAYS = heat >= 0.5 ? 16 : 12, LENL = 16 + 2 * heat, LENS = 9.5 + 1.5 * heat;
   rctx.save(); rctx.rotate(a * 0.55); rctx.lineCap = 'round';
   for (let i = 0; i < RAYS; i++) { const ang = i * 2 * Math.PI / RAYS, lng = i % 2 === 0, len = (lng ? LENL : LENS) + pulse * (lng ? 4.5 : 2.5), al = (lng ? .8 : .5) * (.55 + .45 * pulse); rctx.strokeStyle = 'rgba(' + (lng ? HOT : MAIN) + ',' + al.toFixed(2) + ')'; rctx.lineWidth = lng ? 2.1 : 1.4; rctx.beginPath(); rctx.moveTo(Math.cos(ang) * 3.2, Math.sin(ang) * 3.2); rctx.lineTo(Math.cos(ang) * len, Math.sin(ang) * len); rctx.stroke(); } rctx.restore();
-  // satelites Mythos (so no Fable): 3 pontos orbitando + rastro + orbita tenue
-  if (fable) {
-    rctx.strokeStyle = 'rgba(255,217,138,.10)'; rctx.lineWidth = 1;
+  // satelites Mythos: nascem/somem em fade junto com o calor
+  if (heat > 0.02) {
+    rctx.strokeStyle = 'rgba(255,217,138,' + (0.10 * heat).toFixed(3) + ')'; rctx.lineWidth = 1;
     rctx.beginPath(); rctx.arc(0, 0, 35, 0, 7); rctx.stroke();
     for (let i = 0; i < 3; i++) {
       const ang = -phase * 0.55 + i * 2 * Math.PI / 3;   // mesma velocidade do HUD nativo
-      rctx.fillStyle = 'rgba(255,217,138,.31)'; rctx.beginPath(); rctx.arc(Math.cos(ang + .22) * 35, Math.sin(ang + .22) * 35, 1.3, 0, 7); rctx.fill();
-      rctx.fillStyle = 'rgba(255,244,220,.92)'; rctx.beginPath(); rctx.arc(Math.cos(ang) * 35, Math.sin(ang) * 35, 2, 0, 7); rctx.fill();
+      rctx.fillStyle = 'rgba(255,217,138,' + (0.31 * heat).toFixed(3) + ')'; rctx.beginPath(); rctx.arc(Math.cos(ang + .22) * 35, Math.sin(ang + .22) * 35, 1.3, 0, 7); rctx.fill();
+      rctx.fillStyle = 'rgba(255,244,220,' + (0.92 * heat).toFixed(3) + ')'; rctx.beginPath(); rctx.arc(Math.cos(ang) * 35, Math.sin(ang) * 35, 2, 0, 7); rctx.fill();
     }
   }
-  // glow radial + core (Fable = mais branco, nucleo maior com miolo branco puro)
-  const gr = 13 + pulse * 4.5, g = rctx.createRadialGradient(0, 0, 0, 0, 0, gr); g.addColorStop(0, 'rgba(' + (fable ? '255,248,228' : '255,240,205') + ',' + (0.6 + 0.3 * pulse).toFixed(2) + ')'); g.addColorStop(1, 'rgba(' + MAIN + ',0)'); rctx.fillStyle = g; rctx.beginPath(); rctx.arc(0, 0, gr, 0, 7); rctx.fill();
-  const pr = (fable ? 5.2 : 4.6) + pulse * (fable ? 2.1 : 1.7); rctx.fillStyle = fable ? '#FFD98A' : '#E8B24A'; rctx.beginPath(); rctx.arc(0, 0, pr, 0, 7); rctx.fill();
-  rctx.fillStyle = fable ? '#FFFFFF' : '#FFF8E8'; rctx.beginPath(); rctx.arc(0, 0, 2.2, 0, 7); rctx.fill();
+  // glow radial + core (interpolados pelo heat)
+  const gr = 13 + pulse * 4.5, g = rctx.createRadialGradient(0, 0, 0, 0, 0, gr); g.addColorStop(0, 'rgba(' + mixc([255,240,205],[255,248,228],heat) + ',' + (0.6 + 0.3 * pulse).toFixed(2) + ')'); g.addColorStop(1, 'rgba(' + MAIN + ',0)'); rctx.fillStyle = g; rctx.beginPath(); rctx.arc(0, 0, gr, 0, 7); rctx.fill();
+  const pr = (4.6 + 0.6 * heat) + pulse * (1.7 + 0.4 * heat); rctx.fillStyle = 'rgb(' + MAIN + ')'; rctx.beginPath(); rctx.arc(0, 0, pr, 0, 7); rctx.fill();
+  rctx.fillStyle = 'rgb(' + mixc([255,248,232],[255,255,255],heat) + ')'; rctx.beginPath(); rctx.arc(0, 0, 2.2, 0, 7); rctx.fill();
   rctx.restore();
   if (!closing || shutP < 0.42) requestAnimationFrame(drawReactor);
+}
+
+// ---- FX da transicao de modo: onda de choque + flash + letreiro (canvas por cima) ----
+const fxc = el('fx'), fctx = fxc.getContext('2d');
+function fxLoop() {
+  if (!inTrans) { fctx.clearRect(0, 0, 760, 600); return; }
+  const t = Math.min(1, (Date.now() - transStart) / TRANS_MS), up = heatTo > heatFrom;
+  fctx.clearRect(0, 0, 760, 600); fctx.save(); fctx.scale(2, 2);
+  const cx = 52, cy = 90;
+  for (let i = 0; i < 2; i++) {
+    const tt = (t - i * 0.14) / 0.86; if (tt <= 0 || tt >= 1) continue;
+    const r = 10 + tt * 420;
+    fctx.beginPath(); fctx.arc(cx, cy, r, 0, 7);
+    fctx.strokeStyle = (up ? 'rgba(255,180,90,' : 'rgba(150,210,245,') + (0.6 * (1 - tt)).toFixed(3) + ')';
+    fctx.lineWidth = 9 * (1 - tt) + 1.5; fctx.stroke();
+  }
+  if (t < 0.24) {
+    const k = 1 - t / 0.24, fr = 16 + 34 * (t / 0.24);
+    fctx.beginPath(); fctx.arc(cx, cy, fr, 0, 7);
+    fctx.fillStyle = (up ? 'rgba(255,244,220,' : 'rgba(210,238,255,') + (0.67 * k).toFixed(3) + ')'; fctx.fill();
+  }
+  const a2 = Math.sin(Math.PI * t);
+  fctx.font = '700 9px Consolas, monospace';
+  fctx.fillStyle = (up ? 'rgba(255,244,220,' : 'rgba(159,196,220,') + (0.9 * a2).toFixed(3) + ')';
+  fctx.fillText(up ? '// ENGAJANDO PROTOCOLO FABLE 5' : '// FABLE 5 RECOLHIDO AO COFRE', 15, 280);
+  fctx.restore();
+  requestAnimationFrame(fxLoop);
 }
 
 // ---- desligamento (esfria + colapso CRT), dirigido por JS p/ casar com o QA ----
@@ -277,7 +325,7 @@ function tick() {
 // ---- seed p/ QA (--shot) ----
 function seed() {
   title = 'Claude Code'; startTs = Date.now() - (7 * 60 + 23) * 1000;
-  fable = Q.get('fable') === '1';   // QA do modo FABLE 5
+  fable = Q.get('fable') === '1'; heat = fable ? 1 : 0; modelInit = true;   // QA do modo FABLE 5
   const now = Date.now(); const off = [12, 9, 6.5, 4.2, 1.1];
   const tags = [['REQ', 'Deixar o HUD do Jarvis melhor'], ['READ', 'Lendo main.js'], ['EDIT', 'Editando index.html'], ['EXEC', 'npm install electron'], ['JVS', fable ? 'Operando em forca total, senhor.' : 'Renderizando com as especificacoes, senhor.']];
   feed = []; actTs = []; actions = 0;

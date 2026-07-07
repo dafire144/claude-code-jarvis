@@ -8,7 +8,7 @@
   <img src="docs/shutdown.png" width="420" alt="Jarvis HUD cooling down / shutting off" />
 </p>
 
-It hooks into Claude Code's event system (no polling, no cost) and reacts with pre-recorded lines: *"Positivo, senhor. Iniciando o trabalho."* when you send a prompt, *"Tarefa concluída, senhor."* when it finishes, energetic lines when you tell it to floor it, a gentle nudge at 3 a.m., and so on — **321 lines across 35 categories**, chosen by intent.
+It hooks into Claude Code's event system (no polling, no cost) and reacts with pre-recorded lines: *"Positivo, senhor. Iniciando o trabalho."* when you send a prompt, *"Tarefa concluída, senhor."* when it finishes, energetic lines when you tell it to floor it, a gentle nudge at 3 a.m., and so on — **334 lines across 37 categories**, chosen by intent.
 
 > The voice is a **Brazilian-Portuguese butler** (think Iron Man's JARVIS, but he calls you *"senhor"*). Fully pre-recorded, so playback is instant and free.
 
@@ -21,7 +21,7 @@ It hooks into Claude Code's event system (no polling, no cost) and reacts with p
 - **Robotic blip** — a short synth lead-in before each line.
 - **Live desktop HUD** *(Windows)* — a frameless, always-on-top mini-panel per session: animated arc-reactor core emanating light, uptime, actions, APM + trend, activity sparkline, and a color-coded telemetry feed of what Claude is doing.
 - **Cinematic power-down** *(Windows)* — when a task ends the HUD **cools down** (amber → steel-blue, every element recoloring), **collapses like an old CRT**, and blinks out.
-- **FABLE 5 overdrive mode** — when a session runs Anthropic's most powerful model (Claude Fable 5), the whole HUD goes into **overheat**: heated background, border pulsing between gold and ember, white-hot reactor core with 16 rays and 3 orbiting satellites, molten metrics, a shimmering **"✦ FABLE 5"** badge and a *"PLENA CARGA"* status — plus **24 dedicated voice lines**, delivered fully in character: Jarvis treats Fable 5 as his own **hidden full-power protocol**, unlocked only for top-priority work (*"Protocolo Fable 5 autorizado, senhor. Desviando toda a energia do reator para o senhor."*). Detection is automatic: the status line records the session model, with a transcript-sniffing fallback if you don't use it.
+- **FABLE 5 overdrive mode** — when a session runs Anthropic's most powerful model (Claude Fable 5), the whole HUD goes into **overheat**: heated background, border pulsing between gold and ember, white-hot reactor core with 16 rays and 3 orbiting satellites, molten metrics, a shimmering **"✦ FABLE 5"** badge and a *"PLENA CARGA"* status — plus **28 dedicated voice lines**, delivered fully in character: Jarvis treats Fable 5 as his own **hidden full-power protocol**, unlocked only for top-priority work (*"Protocolo Fable 5 autorizado, senhor. Desviando toda a energia do reator para o senhor."*). Switching models mid-session triggers a **cinematic transition** both ways: a shockwave sweeps the HUD while every element heats up (or cools down, steel-blue, back to normal), with an in-character voice line to match. Detection is instant — the desktop app's session file is read directly, with status-line and transcript-sniffing fallbacks.
 - **Status line** — an optional Claude Code status line with model, folder, branch, live cost and clock (it also powers the Fable 5 detection, and marks the model with a golden ✦ when Fable is running).
 
 <p align="center">
@@ -79,7 +79,21 @@ All state is local and ephemeral; nothing leaves your machine.
 
 ## Customizing the voice
 
-The 339 `.mp3` clips in [`clips/`](clips/) are pre-generated (ElevenLabs). This public build **does not include the generator or any API key**, so the lines are fixed. Want your own voice or language? Edit [`lines.mjs`](lines.mjs) and regenerate the clips with your own ElevenLabs key — the mapping is `clips/{category}-{index}.mp3`. (A generator script is intentionally left out here to keep the repo key-free.)
+The 348 `.mp3` clips in [`clips/`](clips/) are pre-generated (ElevenLabs). This public build **does not include the generator or any API key**, so the lines are fixed. Want your own voice or language? Edit [`lines.mjs`](lines.mjs) and regenerate the clips with your own ElevenLabs key — the mapping is `clips/{category}-{index}.mp3`. (A generator script is intentionally left out here to keep the repo key-free.)
+
+## Updating
+
+Jarvis checks GitHub for a new version **once a day** (a detached, non-blocking probe of this repo's `VERSION` file). When there is one, he tells you himself — *"Senhor, um aprimoramento para os meus sistemas está disponível."* — with a matching native notification. Then update in place with one command from inside the install folder:
+
+```bash
+node update.mjs
+```
+
+It stops the HUD windows (Windows), does `git pull` if you cloned — or downloads and overlays the latest zip if you didn't — and preserves all your local state. You can also just ask your own Claude Code to run it.
+
+## Bug reports (anonymous, opt-out)
+
+The folder ships a [`CLAUDE.md`](CLAUDE.md) so your own Claude Code can help you tweak anything here. When a change is motivated by a **defect** (something broken or annoying), it will also send a short **anonymous report** to the maintainer via `report-bug.mjs` — just the complaint summary, the version and the OS; no paths, no usernames, no session content — and tell you it did. Fixes then ship back to everyone through the update channel above. To disable reports entirely, set the environment variable `JARVIS_NO_REPORT=1`.
 
 ## Roadmap
 

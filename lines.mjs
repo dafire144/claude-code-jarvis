@@ -488,6 +488,26 @@ LINES.fable_stop = [
   "Tarefa encerrada, senhor. O Fable 5 volta a dormir até a próxima prioridade.",
   "Pronto, senhor. Força total, acabamento fino.",
 ];
+// saída do protocolo (troca de modelo NO MEIO da sessão, Fable -> normal)
+LINES.fable_off = [
+  "Protocolo Fable 5 recolhido, senhor. Sistemas de volta à potência de cruzeiro.",
+  "Força total dispensada, senhor. O reator agradece o descanso.",
+  "Encerrando o protocolo oculto, senhor. Operação normal retomada.",
+  "Fable 5 de volta ao cofre, senhor. Seguimos em potência padrão.",
+];
+
+// ============================================================================
+// AVISO DE ATUALIZAÇÃO (2026-07-07): o update-check.mjs consulta o VERSION no
+// GitHub 1x/dia; havendo versão nova, dispara esta categoria (voz + toast). Em
+// personagem: uma melhoria dos "sistemas do Jarvis", nada de mundo externo.
+// ============================================================================
+LINES.update = [
+  "Senhor, um aprimoramento para os meus sistemas está disponível.",
+  "Detectei uma atualização dos meus circuitos, senhor. Recomendo instalá-la quando puder.",
+  "Há uma nova versão dos meus protocolos, senhor. À espera da sua ordem.",
+  "Senhor, meus sistemas podem ser aprimorados. Uma atualização aguarda no repositório.",
+  "Uma evolução dos meus módulos chegou, senhor. Instalo assim que o senhor autorizar.",
+];
 
 // --- avisos de USO da sessão (o quanto do contexto/energia já foi gasto) ---
 // Categoria = usage<% RESTANTE>. 1 clip cada (fala determinística).

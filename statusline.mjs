@@ -58,7 +58,11 @@ try {
   if (sid && modelId) {
     const mdir = join(__dir, "hud-sessions", sid);
     if (!existsSync(mdir)) mkdirSync(mdir, { recursive: true });
-    writeFileSync(join(mdir, "model.txt"), `${modelId}\n${model}`);
+    const mf = join(mdir, "model.txt");
+    let old = "";
+    try { old = (readFileSync(mf, "utf8").split("\n")[0] || "").trim(); } catch { /* 1ª vez */ }
+    if (old && old !== modelId) writeFileSync(join(mdir, "model-prev"), old);   // marcador de TROCA (fala+transição)
+    writeFileSync(mf, `${modelId}\n${model}`);
   }
 } catch { /* statusline nunca quebra por isso */ }
 const fable = /fable/i.test(modelId);   // Fable 5 = classe Mythos, ganha estrela dourada
