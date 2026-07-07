@@ -250,15 +250,28 @@ let cds = {};
 try { cds = JSON.parse(readFileSync(COOLDOWNS_FILE, "utf8")); } catch { /* primeira vez */ }
 
 // --- anunciador de atualização: dispara o update-check no máx. 1x/dia, num processo
-// DESTACADO (nunca bloqueia a sessão). Fora de teardown e do próprio 'update' (sem
-// recursão). O check é quem faz a rede/compare; aqui só um read barato do estado. ---
+// que SOBREVIVE ao hook. No Windows, filho de hook morre com o job (lição 03/07) ->
+// nasce via WMI, oculto e fora do job; no Mac, spawn destacado basta. O check é quem
+// faz rede/compare; aqui só um read barato do estado. Fora de teardown e sem recursão. ---
 if (cat !== "update" && evt.hook_event_name !== "SessionEnd") {
   try {
     let ust = {};
     try { ust = JSON.parse(readFileSync(join(__dir, ".update-state.json"), "utf8")); } catch { /* 1a vez -> checa */ }
     if (Date.now() - (ust.lastCheckTs || 0) >= 24 * 60 * 60 * 1000) {
-      const c = spawn(process.execPath, [join(__dir, "update-check.mjs")], { detached: true, stdio: "ignore" });
-      c.unref();
+      const checker = join(__dir, "update-check.mjs");
+      if (process.platform === "win32") {
+        const cmdU = `"${process.execPath}" "${checker}"`;
+        const wmiU = [
+          `$si=([wmiclass]'Win32_ProcessStartup').CreateInstance();`,
+          `$si.ShowWindow=0;`,
+          `$r=([wmiclass]'Win32_Process').Create('${cmdU.replace(/'/g, "''")}',$null,$si);`,
+          `exit $r.ReturnValue`,
+        ].join(" ");
+        spawnSync("powershell", ["-NoProfile", "-Command", wmiU], { timeout: 8000, stdio: "ignore" });
+      } else {
+        const cU = spawn(process.execPath, [checker], { detached: true, stdio: "ignore" });
+        cU.unref();
+      }
     }
   } catch { /* o anunciador nunca atrapalha a fala */ }
 }

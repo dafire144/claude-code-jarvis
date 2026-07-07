@@ -44,13 +44,14 @@ if (!remote) process.exit(0);
 // só anuncia versão nova que ainda não foi anunciada (não repete a cada dia)
 if (remote !== local && remote !== state.announcedVersion) {
   try {
-    const child = spawn(process.execPath, [join(__dir, "jarvis-notify.mjs"), "update"], { detached: true, stdio: "ignore" });
-    child.unref();
     state.announcedVersion = remote;
     writeFileSync(STATE, JSON.stringify(state));
-    log(`nova versao ${remote} (local ${local || "?"}) -> anunciada`);
+    log(`nova versao ${remote} (local ${local || "?"}) -> anunciando`);
+    const child = spawn(process.execPath, [join(__dir, "jarvis-notify.mjs"), "update"], { detached: true, stdio: "ignore", windowsHide: true });
+    child.unref();
   } catch { /* ok */ }
 } else {
   log(`sem novidade (local ${local || "?"} remoto ${remote})`);
 }
-process.exit(0);
+// SEM process.exit() aqui: sair na marra logo após um spawn destacado derruba o node
+// no Windows (assert do libuv, visto 07/07). O loop esvazia e o processo termina só.
