@@ -59,7 +59,7 @@ async function readStdin() {
   try {
     const chunks = [];
     for await (const c of process.stdin) chunks.push(c);
-    return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+    return JSON.parse(Buffer.concat(chunks).toString("utf8").replace(/^﻿/, "") || "{}");   // tolera BOM (pipes do PS 5.1)
   } catch { return {}; }
 }
 
@@ -372,11 +372,12 @@ const SESSIONS_DIR = process.platform === "darwin"
 
 function findTitle(sid) {
   if (!sid) return "";
-  // cache com TTL de 10 min (título pode ser renomeado)
+  // cache com TTL de 10 min (título pode ser renomeado); resultado VAZIO só vale 15s —
+  // sessão recém-criada ganha o título segundos depois do 1º prompt (corrida de 07/07)
   let cache = {};
   try { cache = JSON.parse(readFileSync(TITLES_CACHE, "utf8")); } catch { /* primeira vez */ }
   const hit = cache[sid];
-  if (hit && Date.now() - hit.ts < 10 * 60 * 1000) return hit.title;
+  if (hit && Date.now() - hit.ts < (hit.title ? 10 * 60 * 1000 : 15 * 1000)) return hit.title;
   // varre os arquivos de sessão do app desktop atrás do cliSessionId
   let title = "";
   const walk = (dir, depth) => {

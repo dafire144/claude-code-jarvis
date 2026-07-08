@@ -20,7 +20,7 @@ const ELECTRON_DIR = join(__dir, "hud-electron");                  // telinha cr
 const HB_STALE = 6000;
 
 async function readStdin() {
-  try { const c = []; for await (const x of process.stdin) c.push(x); return JSON.parse(Buffer.concat(c).toString("utf8") || "{}"); }
+  try { const c = []; for await (const x of process.stdin) c.push(x); return JSON.parse(Buffer.concat(c).toString("utf8").replace(/^﻿/, "") || "{}"); }   // tolera BOM (pipes do PS 5.1)
   catch { return {}; }
 }
 const evt = await readStdin();
@@ -42,7 +42,9 @@ function findTitle(id) {
   let cache = {};
   try { cache = JSON.parse(readFileSync(TITLES, "utf8")); } catch { /* 1a vez */ }
   const hit = cache[id];
-  if (hit && Date.now() - hit.ts < 10 * 60 * 1000) return hit.title;
+  // ⚠️ resultado VAZIO só vale 15s: sessão recém-criada ganha o título do app segundos
+  // depois do 1º prompt (corrida de 07/07) — um vazio cacheado por 10min envenenava tudo.
+  if (hit && Date.now() - hit.ts < (hit.title ? 10 * 60 * 1000 : 15 * 1000)) return hit.title;
   let title = "";
   const walk = (d, depth) => {
     if (title || depth > 3) return;
@@ -63,8 +65,12 @@ function findTitle(id) {
 }
 
 function writeMeta(title) {
-  let startTs = now;
-  try { const l = readFileSync(P("meta.txt"), "utf8").split("\n"); if (l[1]) startTs = Number(l[1]) || now; } catch { /* 1a vez */ }
+  let startTs = 0;
+  try { const l = readFileSync(P("meta.txt"), "utf8").split("\n"); if (l[1]) startTs = Number(l[1]) || 0; } catch { /* 1a vez */ }
+  // meta nova: ancora o TEMPO DE OP. no início real da tarefa (burst), não no "agora" —
+  // o título pode só resolver no 1º PreToolUse, minutos depois do prompt (corrida 07/07)
+  if (!startTs) { try { startTs = Number(readFileSync(P("burst.txt"), "utf8").split("\t")[0]) || 0; } catch { /* sem burst */ } }
+  if (!startTs) startTs = now;
   try { writeFileSync(P("meta.txt"), `${title}\n${startTs}`); } catch { /* ok */ }
 }
 
@@ -89,7 +95,13 @@ function describe(tool, inp) {
     case "Agent": case "Task": return { tag: "AGNT", text: `Delegando: ${cut(inp.description || inp.subagent_type || "agente", 38)}` };
     case "Workflow": return { tag: "AGNT", text: "Orquestrando agentes" };
     case "TodoWrite": case "TaskCreate": case "TaskUpdate": return { tag: "PLAN", text: "Organizando o plano" };
-    default: return { tag: "--", text: String(tool || "ação") };
+    default: {
+      // tools MCP (mcp__servidor__acao): sessões que trabalham via conectores (Chrome,
+      // Supabase, Netlify...) também alimentam o feed e o relógio de abertura da telinha
+      const m = /^mcp__(.+?)__(.+)$/.exec(String(tool || ""));
+      if (m) return { tag: "MCP", text: cut(`${m[1].replace(/[-_]/g, " ")}: ${m[2].replace(/[-_]/g, " ")}`, 46) };
+      return { tag: "--", text: String(tool || "ação") };
+    }
   }
 }
 
@@ -141,6 +153,8 @@ function ensureHud() {
 // Agenda a abertura da telinha `delaySec` s apos o prompt (via WMI, sobrevive ao fim do hook).
 // Abertura baseada em TEMPO desde o prompt, NAO na cadencia de ferramentas -> nao depende de
 // um PreToolUse disparar no momento certo (robusto p/ tarefas que ficam muito "pensando").
+// O abridor re-sonda o TITULO (title-probe.mjs) a cada tentativa: sessao nova pode ainda nao
+// ter titulo no momento do prompt (corrida 07/07) e ele nasce segundos depois.
 function scheduleOpen(delaySec) {
   if (existsSync(P("closed"))) return;                          // fechada a mao: respeita
   if (process.platform === "darwin") {                          // macOS: agenda via node (detached sobrevive)
@@ -149,7 +163,7 @@ function scheduleOpen(delaySec) {
   }
   if (process.platform !== "win32") return;
   const script = join(__dir, "hud-open-delayed.ps1");
-  const inner = `"powershell.exe" -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "${script}" -Dir "${dir}" -Exe "${EXE}" -Sid "${sid}" -Delay ${delaySec}`;
+  const inner = `"powershell.exe" -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "${script}" -Dir "${dir}" -Exe "${EXE}" -Sid "${sid}" -Delay ${delaySec} -Node "${process.execPath}" -Jarvis "${__dir}"`;
   const wmi = [
     `$si=([wmiclass]'Win32_ProcessStartup').CreateInstance();`,
     `$si.ShowWindow=0;`,
@@ -193,8 +207,12 @@ if (ev === "Stop") {
 }
 
 // TÍTULO OBRIGATÓRIO (pedido do Davi): sessão sem título = CLI/efêmera → NUNCA abre telinha.
+// ⚠️ Mas a regra vale no ABRIR, não no pipeline (lição de 07/07, sessão "Caio CRM"): no 1º
+// prompt de uma sessão RECÉM-criada o app ainda não gravou o título → se o hook morresse
+// aqui, perdia o burst (âncora do relógio) e o agendamento dos 30s, e a telinha só nascia
+// minutos depois. Agora o pipeline roda SEMPRE; meta.txt só é escrita quando o título
+// existe, o ensureHud exige título, e o abridor atrasado re-sonda via title-probe.mjs.
 const title = findTitle(sid);
-if (!title) process.exit(0);
 try { mkdirSync(dir, { recursive: true }); } catch { /* ok */ }
 // mantém model.txt fresco pro exe/Electron (modo FABLE 5); statusline já cobre, isto é o fallback
 try { sessionModel(__dir, sid, evt.transcript_path); } catch { /* modelo é opcional */ }
@@ -205,7 +223,7 @@ if (ev === "UserPromptSubmit") {
   try { if (existsSync(P("closed"))) rmSync(P("closed")); } catch { /* ok */ }
   try { if (existsSync(P("end"))) rmSync(P("end")); } catch { /* ok */ }
   try { if (existsSync(P("done"))) rmSync(P("done")); } catch { /* ok */ }  // novo prompt -> cancela o auto-fechar
-  writeMeta(title);
+  if (title) writeMeta(title);
   try { writeFileSync(P("burst.txt"), `${now}\t${now}`); } catch { /* ok */ }  // reinicia o relógio da tarefa
   const txt = String(evt.prompt || "").replace(/\s+/g, " ").trim();
   feed("REQ", txt ? txt.slice(0, 48) : "Novo pedido.");
@@ -214,7 +232,7 @@ if (ev === "UserPromptSubmit") {
 }
 
 // PreToolUse (matcher amplo): alimenta feed/progresso e ABRE a telinha só quando a tarefa passa de 30s.
-writeMeta(title);
+if (title) writeMeta(title);
 try { if (existsSync(P("done"))) rmSync(P("done")); } catch { /* ok */ }  // atividade nova -> cancela o auto-fechar
 const tool = String(evt.tool_name || "");
 const inp = evt.tool_input || {};
@@ -234,8 +252,13 @@ if (tool === "TaskCreate" || tool === "TaskUpdate" || tool === "TodoWrite") {
 // aí os 30s nunca acumulavam e a telinha não abria em tarefa longa (bug 04/07). 2min cobre
 // as pausas de raciocínio e ainda distingue tarefa nova (prompt novo já zera de qualquer jeito).
 let bstart = now, blast = 0;
-try { const b = readFileSync(P("burst.txt"), "utf8").split("\t"); bstart = Number(b[0]) || now; blast = Number(b[1]) || 0; } catch { /* 1a vez */ }
-if (now - blast > 900000) bstart = now;                         // só zera após 15min parado (o scheduleOpen já cobre o caso principal)
+try { const b = readFileSync(P("burst.txt"), "utf8").split("\t"); bstart = Number(b[0]) || now; blast = Number(b[1]) || 0; }
+catch {
+  // burst sumiu? ancora no startTs do meta — o relógio da tarefa NUNCA recomeça do zero
+  // só porque um arquivo se perdeu (o reinício era o que atrasava a telinha em 07/07)
+  try { const l = readFileSync(P("meta.txt"), "utf8").split("\n"); const t0 = Number(l[1]) || 0; if (t0 > 0) { bstart = t0; blast = now; } } catch { /* 1a vez mesmo */ }
+}
+if (blast > 0 && now - blast > 900000) bstart = now;            // só zera após 15min parado (o scheduleOpen já cobre o caso principal)
 try { writeFileSync(P("burst.txt"), `${bstart}\t${now}`); } catch { /* ok */ }
-if (now - bstart >= 30000) ensureHud();                          // tarefa passou de 30s → abre
+if (now - bstart >= 30000 && title) ensureHud();                 // tarefa passou de 30s (e tem título) → abre
 process.exit(0);

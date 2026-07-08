@@ -65,6 +65,11 @@ class JarvisHudWF : Form {
   // ---- sequencia de IGNICAO (boot: fisga de luz -> linha CRT -> abre -> aquece) ----
   bool booting = false; long bootStartMs = 0; Bitmap bootBmp = null;
   const long BOOT_MS = 1400;   // duracao da ignicao (one-shot, espelho do desligamento)
+  // ---- FUNDO CACHEADO: o painel inteiro MENOS o nucleo e desenhado num bitmap e refeito
+  // so quando os dados mudam (1x/s). Cada quadro do nucleo apenas blita a regiao do atomo
+  // desse cache e desenha o nucleo vivo por cima -> quadro barato -> da pra rodar liso a
+  // 30/60fps sem repetir o Render() pesado (grade, cantoneiras, vidro, MeasureString...).
+  Bitmap bgBmp = null; bool bgDirty = true; bool periodSet = false;
   [System.Runtime.InteropServices.DllImport("winmm.dll")] static extern uint timeBeginPeriod(uint p);
   [System.Runtime.InteropServices.DllImport("winmm.dll")] static extern uint timeEndPeriod(uint p);
 
@@ -197,6 +202,12 @@ class JarvisHudWF : Form {
 
     if (m == null) return;   // modo --shot: nao inicia timers/posicao
 
+    // timer de ALTA RESOLUCAO durante toda a vida da janela: o WinForms.Timer, sem isso,
+    // so entrega quadros em multiplos de ~15.6ms (jitter que fazia o nucleo "travar" a
+    // 15fps). Com 1ms de resolucao, 16/33ms saem regulares. A janela so abre em tarefa
+    // ativa e fecha ~20s depois -> custo de energia so enquanto o Davi ta trabalhando.
+    try { timeBeginPeriod(1); periodSet = true; } catch {}
+
     pid = System.Diagnostics.Process.GetCurrentProcess().Id;
     Location = HudLayout.Place(pid, bornMs, W, H, false);
     Beat();
@@ -207,7 +218,7 @@ class JarvisHudWF : Form {
     dataTimer.Tick += delegate { DataTick(); };
     dataTimer.Start();
 
-    animTimer = new WinTimer(); animTimer.Interval = fable ? 33 : 66;   // FABLE = nucleo a 30fps
+    animTimer = new WinTimer(); animTimer.Interval = 33;   // nucleo: 30fps ocioso / 60fps operando (DataTick ajusta)
     animTimer.Tick += delegate {
       if (closing) {
         if (NowMs() - closeStartMs >= SHUT_MS) { animTimer.Stop(); RealClose(); return; }
@@ -222,11 +233,11 @@ class JarvisHudWF : Form {
       phase = (NowMs() - bornMs) / 500.0;
       if (inTrans) {                                   // transicao de modo: a janela INTEIRA anima
         double t = (NowMs() - transStart) / (double)TRANS_MS;
-        if (t >= 1) { heat = heatTo; inTrans = false; animTimer.Interval = fable ? 33 : 66; }
+        if (t >= 1) { heat = heatTo; inTrans = false; bgDirty = true; animTimer.Interval = CoreInterval(); }
         else heat = heatFrom + (heatTo - heatFrom) * SmoothStep(t);
         Invalidate(); return;
       }
-      Invalidate(atomRect);
+      Invalidate(atomRect);   // regime normal: so a regiao do nucleo (blit do cache + nucleo vivo)
     };
     animTimer.Start();    // nucleo anima SEMPRE (repinta so o atomRect -> custo baixo)
 
@@ -241,14 +252,13 @@ class JarvisHudWF : Form {
   void BeginBoot() {
     booting = true; bootStartMs = NowMs();
     try { bootBmp = new Bitmap(W, H); using (var g = Graphics.FromImage(bootBmp)) Render(g); } catch { bootBmp = null; }
-    try { timeBeginPeriod(1); } catch {}
-    if (animTimer != null) animTimer.Interval = 8;
+    if (animTimer != null) animTimer.Interval = 8;   // ignicao ~120fps (timer de alta-res ja segurado na abertura)
   }
   void EndBoot() {
     booting = false;
-    try { timeEndPeriod(1); } catch {}
     try { if (bootBmp != null) { bootBmp.Dispose(); bootBmp = null; } } catch {}
-    if (animTimer != null && !closing) animTimer.Interval = fable ? 33 : 66;
+    bgDirty = true;                                  // 1o quadro em regime = fundo fresco
+    if (animTimer != null && !closing) animTimer.Interval = CoreInterval();
     Invalidate();
   }
 
@@ -267,12 +277,13 @@ class JarvisHudWF : Form {
     if (grew) ReadMeta();
     ReadProgress();
     ReadModel();          // modo FABLE 5 acende/apaga junto com o modelo da sessao
-    if (animTimer != null && !closing && !inTrans && !booting) {   // overdrive = nucleo a 30fps (segue so o atomRect)
-      int want = fable ? 33 : 66;
-      if (animTimer.Interval != want) animTimer.Interval = want;
-    }
     Recompute();          // recalcula APM/carga/sparkline 1x/s (barato)
     UpdateStatus();
+    bgDirty = true;       // dados mudaram -> refaz o fundo cacheado no proximo quadro (1x/s)
+    if (animTimer != null && !closing && !inTrans && !booting) {   // fps segue a atividade
+      int want = CoreInterval();
+      if (animTimer.Interval != want) animTimer.Interval = want;
+    }
     // encerra sozinho 20s apos o fim da sessao (com animacao de desligamento)
     if (endShownAt > 0 && NowMs() - endShownAt > 20000) { BeginShutdown(); return; }
     // Claude terminou a resposta (hook Stop escreveu "done") -> desliga apos breve carencia.
@@ -411,11 +422,37 @@ class JarvisHudWF : Form {
   // cor interpolada pelo CALOR do modo (0=normal, 1=FABLE): a transicao recolore tudo junto
   Color HC(Color normal, Color myth) { return heat <= 0 ? normal : heat >= 1 ? myth : Lerp(normal, myth, heat); }
 
+  // cadencia do nucleo: 30fps FIXO (33ms). 30 e divisor exato de 60Hz -> cada quadro dura
+  // 2 refreshes = SEM judder (40fps bateria contra os 60Hz e engasga; 60fps seria liso mas
+  // custa o dobro -- exagero p/ PC fraco). Com o timer de alta-res, 33ms sai regular e liso.
+  int CoreInterval() { return 33; }
+
+  // refaz o fundo cacheado (painel inteiro MENOS o nucleo). So roda quando os dados mudam
+  // (1x/s no DataTick, ou ao sair de transicao/ignicao) -> o Render() pesado NAO repete por quadro.
+  void RebuildBg() {
+    if (bgBmp == null) bgBmp = new Bitmap(W, H);
+    using (var g = Graphics.FromImage(bgBmp)) RenderPanel(g, false);
+    bgDirty = false;
+  }
+
   protected override void OnPaint(PaintEventArgs e) {
     try {
       if (closing) { PaintShutdown(e.Graphics); return; }
       if (booting) { PaintBoot(e.Graphics); return; }
-      Render(e.Graphics);
+      if (inTrans) { Render(e.Graphics); return; }   // transicao: painel inteiro anima (one-shot, sem cache)
+      // regime normal: blita a regiao invalidada do FUNDO cacheado + desenha o nucleo vivo por cima.
+      // Assim o unico trabalho por quadro (a 30/60fps) e um blit barato + o nucleo -> fim do "travado".
+      if (bgBmp == null || bgDirty) RebuildBg();
+      var g2 = e.Graphics;
+      Rectangle clip = e.ClipRectangle;
+      if (clip.Width <= 0 || clip.Height <= 0 || clip.Width > W) clip = new Rectangle(0, 0, W, H);
+      var prev = g2.CompositingMode;
+      g2.CompositingMode = CompositingMode.SourceCopy;                 // copia crua 1:1 (sem alpha) = rapido
+      g2.DrawImage(bgBmp, clip, clip, GraphicsUnit.Pixel);
+      g2.CompositingMode = prev;
+      g2.SmoothingMode = SmoothingMode.AntiAlias;
+      g2.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+      DrawCore(g2, PAD + 36, 88);                                      // nucleo vivo (unico item a 30/60fps)
     } catch { /* 1 frame ruim nunca pode travar/derrubar a janela */ }
   }
 
@@ -438,12 +475,10 @@ class JarvisHudWF : Form {
       }
     } catch { shotBmp = null; coldBmp = null; }
     if (dataTimer != null) dataTimer.Stop();                                   // congela os dados
-    try { timeBeginPeriod(1); } catch {}                                       // timer de alta resolucao (tela 120hz)
-    if (animTimer != null) { animTimer.Interval = 8; if (!animTimer.Enabled) animTimer.Start(); }  // ~120fps
+    if (animTimer != null) { animTimer.Interval = 8; if (!animTimer.Enabled) animTimer.Start(); }  // ~120fps (alta-res ja segurada)
     Invalidate();
   }
   void RealClose() {
-    try { timeEndPeriod(1); } catch {}
     try { if (shotBmp != null) { shotBmp.Dispose(); shotBmp = null; } if (coldBmp != null) { coldBmp.Dispose(); coldBmp = null; } } catch {}
     Close();
   }
@@ -589,10 +624,12 @@ class JarvisHudWF : Form {
     }
   }
 
-  // Pintura completa (usada pelo OnPaint E pelo modo --shot). Tudo aqui roda no
-  // Invalidate cheio de 1Hz; quando o loop de 66ms invalida so o atomRect, o GDI+
-  // recorta e o desenho fora do nucleo vira no-op barato.
-  public void Render(Graphics g) {
+  // Pintura completa do painel. Usada pelo modo --shot, pela ignicao/desligamento (que
+  // congelam 1 frame) e pela transicao de modo (painel inteiro anima). Em REGIME NORMAL
+  // NAO e chamada por quadro: o OnPaint blita o fundo cacheado + desenha so o nucleo.
+  // `drawCore=false` gera o FUNDO cacheado (tudo menos o nucleo).
+  public void Render(Graphics g) { RenderPanel(g, true); }
+  void RenderPanel(Graphics g, bool drawCore) {
     g.SmoothingMode = SmoothingMode.AntiAlias;
     g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
     var rect = new Rectangle(0, 0, W, H);
@@ -659,8 +696,8 @@ class JarvisHudWF : Form {
     string slabel = string.IsNullOrEmpty(title) ? "sessao (CLI)" : "// " + title;
     g.DrawString(Fit(g, slabel, fSess, W - 2 * PAD - mlw), fSess, B(AmberMut), PAD - 1, 32);
 
-    // nucleo do reator (animado)
-    DrawCore(g, PAD + 36, 88);
+    // nucleo do reator (animado) — pulado ao gerar o FUNDO cacheado (desenhado vivo no OnPaint)
+    if (drawCore) DrawCore(g, PAD + 36, 88);
 
     // ---- coluna esquerda: TEMPO DE OP. + ACOES (Fable = numeros incandescentes) ----
     Color vBig = HC(Amber, MythGold), vSub = HC(AmberDeep, Ember);
@@ -745,7 +782,7 @@ class JarvisHudWF : Form {
     if (feed.Count == 0)
       g.DrawString("Aguardando telemetria da sessao...", fFeed, B(Faint), PAD + 2, DIVY + 27);
 
-    if (inTrans) DrawModelTrans(g);   // onda de choque + letreiro por cima de tudo
+    if (drawCore && inTrans) DrawModelTrans(g);   // onda de choque + letreiro (so no caminho vivo, nao no fundo cacheado)
     g.ResetTransform();               // o "vidro" do painel nao treme junto com o conteudo
     g.DrawImage(Cine.Overlay(W, H), new Rectangle(0, 0, W, H));   // scanlines + vinheta (1 bitmap cacheado)
   }
@@ -993,7 +1030,13 @@ class JarvisHudWF : Form {
     base.OnMouseMove(e);
   }
   protected override void OnMouseUp(MouseEventArgs e) { if (dragging) { dragging = false; if (movedDuringDrag) { userMoved = true; HudLayout.Release(pid); } movedDuringDrag = false; } base.OnMouseUp(e); }
-  protected override void OnFormClosed(FormClosedEventArgs e) { try { HudLayout.Release(pid); } catch {} try { if (mutex != null) mutex.ReleaseMutex(); } catch {} base.OnFormClosed(e); }
+  protected override void OnFormClosed(FormClosedEventArgs e) {
+    try { if (periodSet) { timeEndPeriod(1); periodSet = false; } } catch {}   // devolve a resolucao do timer
+    try { if (bgBmp != null) { bgBmp.Dispose(); bgBmp = null; } } catch {}
+    try { HudLayout.Release(pid); } catch {}
+    try { if (mutex != null) mutex.ReleaseMutex(); } catch {}
+    base.OnFormClosed(e);
+  }
 }
 
 // ---- acabamento HOLOGRAFICO compartilhado (telinha de sessao + fan-out) ----
