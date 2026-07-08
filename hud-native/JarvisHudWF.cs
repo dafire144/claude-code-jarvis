@@ -56,7 +56,7 @@ class JarvisHudWF : Form {
   const int FEEDN = 8;
   bool dragging; Point dragStart;
   int pid; bool userMoved, movedDuringDrag;   // arrasto manual tira a janela do auto-layout
-  WinTimer dataTimer, animTimer;
+  WinTimer dataTimer, animTimer, layoutTimer;
   CultureInfo inv = CultureInfo.InvariantCulture;
   Mutex mutex;
   // ---- sequencia de desligamento (esfriar o nucleo + colapso estilo CRT) ----
@@ -254,6 +254,10 @@ class JarvisHudWF : Form {
     dataTimer.Tick += delegate { DataTick(); };
     dataTimer.Start();
 
+    layoutTimer = new WinTimer(); layoutTimer.Interval = 250;   // recompacta o dock 4x/s: a vizinha reencaixa quase na hora ao minimizar/expandir/fechar (sem overlap)
+    layoutTimer.Tick += delegate { PlaceTick(); };
+    layoutTimer.Start();
+
     animTimer = new WinTimer(); animTimer.Interval = 33;   // nucleo: 30fps ocioso / 60fps operando (DataTick ajusta)
     animTimer.Tick += delegate {
       if (closing) {
@@ -332,6 +336,14 @@ class JarvisHudWF : Form {
     else status = "ONLINE";
   }
 
+  // recompacta a posicao no dock (chamado 4x/s pelo layoutTimer, alem do DataTick de 1s):
+  // quando uma telinha minimiza/expande/fecha, as vizinhas reencaixam quase na hora -> sem overlap.
+  void PlaceTick() {
+    if (userMoved || dragging || morphing || closing || booting) return;
+    var np = HudLayout.Place(pid, bornMs, CurW(), CurH(), false, minimized);
+    if (np != Location) Location = np;
+  }
+
   void DataTick() {
     Beat();
     bool grew = ReadFeed();
@@ -366,7 +378,7 @@ class JarvisHudWF : Form {
     if (!File.Exists(endPath) && NowMs() - Math.Max(lastFeedTs, bornMs) > IDLE_CLOSE) { BeginShutdown(); return; }
     // pasta sumiu (sessao limpa) -> encerra
     if (!Directory.Exists(dir)) { BeginShutdown(); return; }
-    if (!userMoved && !dragging && !morphing) { var np = HudLayout.Place(pid, bornMs, CurW(), CurH(), false, minimized); if (np != Location) Location = np; }
+    PlaceTick();
     if (minimized) miniBgDirty = true;   // atualiza o texto da mini-capsula 1x/s
     Invalidate();
   }
@@ -701,6 +713,7 @@ class JarvisHudWF : Form {
       }
     } catch { shotBmp = null; coldBmp = null; }
     if (dataTimer != null) dataTimer.Stop();                                   // congela os dados
+    if (layoutTimer != null) layoutTimer.Stop();                               // para a recompactacao de layout no desligamento
     if (animTimer != null) { animTimer.Interval = 8; if (!animTimer.Enabled) animTimer.Start(); }  // ~120fps (alta-res ja segurada)
     Invalidate();
   }

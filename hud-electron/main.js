@@ -126,7 +126,7 @@ app.whenReady().then(() => {
       try { const b = win.getBounds(); if (!lastPlaced || Math.abs(b.x - lastPlaced.x) > 3 || Math.abs(b.y - lastPlaced.y) > 3) { userMoved = true; releaseSlot(); } } catch (e) {}
     });
     // recompacta 1x/s (dock + empilhamento) e mantem o heartbeat do slot fresco
-    const relayout = setInterval(() => { if (!userMoved) redock(win); }, 1000);
+    const relayout = setInterval(() => { if (!userMoved) redock(win); }, 250);
     win.on('closed', () => { try { clearInterval(relayout); } catch (e) {} releaseSlot(); });
 
     ipcMain.on('hud-close', () => { try { win.close(); } catch (e) {} });
