@@ -24,6 +24,9 @@ mission/
 .slots/
 clips/prefix/
 
+# --- Config local do HUD (opt-in, nao versionar: manter o padrao publico) ---
+hud-native/start-minimized.flag
+
 # --- SO / build ---
 .DS_Store
 Thumbs.db

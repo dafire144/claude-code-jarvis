@@ -238,7 +238,14 @@ class JarvisHudWF : Form {
     try { timeBeginPeriod(1); periodSet = true; } catch {}
 
     pid = System.Diagnostics.Process.GetCurrentProcess().Id;
-    Location = HudLayout.Place(pid, bornMs, W, H, false, false);
+    if (WantStartMinimized(exeDir)) {                       // config: abrir ja como mini-capsula estacionada no dock
+      minimized = true;
+      ClientSize = new Size(MINI_W, MINI_H);
+      try { using (var gpm = RoundedPath(0, 0, MINI_W, MINI_H, RegionRad(MINI_H))) Region = new Region(gpm); } catch {}
+      Location = HudLayout.Place(pid, bornMs, MINI_W, MINI_H, false, true);
+    } else {
+      Location = HudLayout.Place(pid, bornMs, W, H, false, false);
+    }
     Beat();
     ReadMeta(); ReadFeed(); ReadModel();
     heat = fable ? 1 : 0; inTrans = false;   // a janela ABRE ja no modo certo, sem transicao
@@ -281,8 +288,23 @@ class JarvisHudWF : Form {
     animTimer.Start();    // nucleo anima SEMPRE (repinta so o atomRect -> custo baixo)
 
     UpdateStatus();
-    BeginBoot();          // IGNICAO cinematica na abertura (~1.4s, one-shot)
+    if (!minimized) BeginBoot();   // ignicao cinematica so no modo cheio; minimizada abre direto como capsula
     Invalidate();
+  }
+
+  // Config "abrir minimizada": env JARVIS_HUD_START_MINIMIZED (1/true/on/yes) OU o arquivo-flag
+  // local <exeDir>\start-minimized.flag (nao versionado). Env explicito (0/1) vence o flag.
+  static bool WantStartMinimized(string exeDir) {
+    try {
+      string v = Environment.GetEnvironmentVariable("JARVIS_HUD_START_MINIMIZED");
+      if (v != null) {
+        v = v.Trim().ToLowerInvariant();
+        if (v == "1" || v == "true" || v == "yes" || v == "on") return true;
+        if (v == "0" || v == "false" || v == "no" || v == "off") return false;
+      }
+    } catch {}
+    try { if (File.Exists(Path.Combine(exeDir, "start-minimized.flag"))) return true; } catch {}
+    return false;
   }
 
   // IGNICAO: espelho do desligamento, em tom QUENTE. Congela o 1o frame vivo e o revela
