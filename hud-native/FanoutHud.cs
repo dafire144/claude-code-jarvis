@@ -90,7 +90,7 @@ class FanoutHud : Form {
     if (m == null) return;   // modo --fanout-shot: sem timers/posicao
 
     pid = System.Diagnostics.Process.GetCurrentProcess().Id;
-    Location = HudLayout.Place(pid, bornMs, W, H, false);
+    Location = HudLayout.Place(pid, bornMs, W, H, false, false);
     ReadMission();
 
     dataTimer = new WinTimer(); dataTimer.Interval = 1000;
@@ -142,7 +142,7 @@ class FanoutHud : Form {
     // arquivo de missao sumiu (faxina) -> encerra
     if (file != null && !File.Exists(file) && now - bornMs > 5000) { Close(); return; }
     if (closeAt > 0 && now >= closeAt) { Close(); return; }
-    if (!userMoved && !dragging) { var np = HudLayout.Place(pid, bornMs, W, H, false); if (np != Location) Location = np; }
+    if (!userMoved && !dragging) { var np = HudLayout.Place(pid, bornMs, W, H, false, false); if (np != Location) Location = np; }
     Invalidate();
   }
 

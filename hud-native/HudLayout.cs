@@ -27,12 +27,15 @@ static class HudLayout {
 
   // Renova o slot desta janela e devolve a posicao (canto direito, empilhada por ordem de
   // abertura). detached=true -> some do fluxo (janela arrastada) e so calcula sobre os outros.
-  public static System.Drawing.Point Place(int pid, long claim, int w, int h, bool detached) {
+  // mini=true -> capsula MINIMIZADA: estaciona no topo do canto direito, ACIMA de qualquer
+  // telinha cheia, e empilha junto das outras minimizadas (uma embaixo da outra).
+  public static System.Drawing.Point Place(int pid, long claim, int w, int h, bool detached, bool mini) {
     string dir = Dir();
     string me = Path.Combine(dir, pid + ".slot");
     long now = Now();
 
-    // soma alturas das janelas "acima" (claim menor; empate -> pid menor)
+    // soma alturas das janelas "acima": toda minimizada fica acima de qualquer cheia; dentro
+    // do mesmo grupo, ordem de abertura (claim menor; empate -> pid menor).
     int aboveH = 0;
     try {
       foreach (var f in Directory.GetFiles(dir, "*.slot")) {
@@ -44,7 +47,10 @@ static class HudLayout {
         if (p.Length < 3 || !long.TryParse(p[0], out oclaim) || !int.TryParse(p[1], out oh) || !long.TryParse(p[2], out ohb)) continue;
         if (now - ohb > ORPHAN) { try { File.Delete(f); } catch {} continue; }
         if (now - ohb > STALE) continue;                 // morta: nao ocupa espaco
-        bool above = oclaim < claim || (oclaim == claim && opid < pid);
+        bool omini = p.Length >= 7 && p[6] == "1";
+        bool above;
+        if (omini != mini) above = omini;                // minimizada sempre acima de cheia
+        else above = oclaim < claim || (oclaim == claim && opid < pid);
         if (above) aboveH += oh + GAP;
       }
     } catch {}
@@ -56,7 +62,7 @@ static class HudLayout {
     if (x < wa.Left + 6) x = wa.Left + 6;
 
     if (detached) { try { if (File.Exists(me)) File.Delete(me); } catch {} }
-    else { try { File.WriteAllText(me, claim + "|" + h + "|" + now + "|" + x + "|" + y + "|" + w); } catch {} }
+    else { try { File.WriteAllText(me, claim + "|" + h + "|" + now + "|" + x + "|" + y + "|" + w + "|" + (mini ? "1" : "0")); } catch {} }
     return new System.Drawing.Point(x, y);
   }
 

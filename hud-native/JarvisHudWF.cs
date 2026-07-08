@@ -238,7 +238,7 @@ class JarvisHudWF : Form {
     try { timeBeginPeriod(1); periodSet = true; } catch {}
 
     pid = System.Diagnostics.Process.GetCurrentProcess().Id;
-    Location = HudLayout.Place(pid, bornMs, W, H, false);
+    Location = HudLayout.Place(pid, bornMs, W, H, false, false);
     Beat();
     ReadMeta(); ReadFeed(); ReadModel();
     heat = fable ? 1 : 0; inTrans = false;   // a janela ABRE ja no modo certo, sem transicao
@@ -344,7 +344,7 @@ class JarvisHudWF : Form {
     if (!File.Exists(endPath) && NowMs() - Math.Max(lastFeedTs, bornMs) > IDLE_CLOSE) { BeginShutdown(); return; }
     // pasta sumiu (sessao limpa) -> encerra
     if (!Directory.Exists(dir)) { BeginShutdown(); return; }
-    if (!userMoved && !dragging && !morphing) { var np = HudLayout.Place(pid, bornMs, CurW(), CurH(), false); if (np != Location) Location = np; }
+    if (!userMoved && !dragging && !morphing) { var np = HudLayout.Place(pid, bornMs, CurW(), CurH(), false, minimized); if (np != Location) Location = np; }
     if (minimized) miniBgDirty = true;   // atualiza o texto da mini-capsula 1x/s
     Invalidate();
   }
@@ -572,6 +572,7 @@ class JarvisHudWF : Form {
 
   void BeginMorph(bool toMini) {
     if (morphing) return;
+    if (toMini) userMoved = false;                                       // minimizar rejunta ao auto-layout: a capsula estaciona no dock
     morphing = true; morphDir = toMini ? 1 : -1; morphStart = NowMs();
     morphAnchorRight = Location.X + Width; morphAnchorTop = Location.Y;   // ancora o canto superior-DIREITO
     try { fullShot = new Bitmap(W, H); using (var g = Graphics.FromImage(fullShot)) Render(g); } catch { fullShot = null; }
@@ -586,7 +587,9 @@ class JarvisHudWF : Form {
   void EndMorph() {
     morphing = false; minimized = (morphDir == 1);
     int w = CurW(), h = CurH();
-    try { SetBounds(morphAnchorRight - w, morphAnchorTop, w, h); using (var gp = RoundedPath(0, 0, w, h, RegionRad(h))) Region = new Region(gp); } catch {}
+    int nx = morphAnchorRight - w, ny = morphAnchorTop;
+    if (!userMoved && !dragging) { var np = HudLayout.Place(pid, bornMs, w, h, false, minimized); nx = np.X; ny = np.Y; }   // estaciona no dock ja no fim do morph (sem esperar o tick de 1s)
+    try { SetBounds(nx, ny, w, h); using (var gp = RoundedPath(0, 0, w, h, RegionRad(h))) Region = new Region(gp); } catch {}
     try { if (fullShot != null) { fullShot.Dispose(); fullShot = null; } } catch {}
     try { if (miniShotBmp != null) { miniShotBmp.Dispose(); miniShotBmp = null; } } catch {}
     bgDirty = true; miniBgDirty = true;
