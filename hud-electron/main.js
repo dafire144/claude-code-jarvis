@@ -2,13 +2,20 @@
 // Espelha a versao nativa do Windows: janela sem moldura, transparente, sempre-no-topo,
 // uma por sessao, com IGNICAO cinematica na abertura e desligamento CRT no fim. Le
 // hud-sessions/<sid>/ (meta/feed/progress/done/end/closed) escritos pelos hooks.
-// Modos de QA: --shot <png> [fable], --shot-boot <png> <p> e --shot-shut <png> <p>.
+// LAYOUT multi-janela: mesmo protocolo .slots do nativo (HudLayout.cs) — as minimizadas
+// estacionam no topo do canto direito e empilham uma sob a outra; as cheias ficam abaixo;
+// recompacta 1x/s; janela arrastada sai do fluxo. "ABRIR MINIMIZADA" (opt-in) via env
+// JARVIS_HUD_START_MINIMIZED=1 ou o arquivo start-minimized.flag.
+// Modos de QA: --shot <png> [fable], --shot-mini <png> [fable], --shot-boot/-shut ...
 const { app, BrowserWindow, ipcMain, screen } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
 const W = 380, H = 300, MINI_W = 182, MINI_H = 54, HB_STALE = 6000;
 const ROOT = path.join(__dirname, '..', 'hud-sessions');
+// coordenador de layout compartilhado — MESMO dir/protocolo do nativo (HudLayout.cs)
+const SLOTS = path.join(__dirname, '..', 'hud-native', '.slots');
+const TOPGAP = 42, MARGIN = 12, GAP = 10, SLOT_STALE = 4000, SLOT_ORPHAN = 12000;
 
 // argumentos (depois do caminho do app)
 const argv = process.argv.slice(app.isPackaged ? 1 : 2);
@@ -21,8 +28,69 @@ else if (argv[0]) { sid = argv[0]; }
 
 const cleanSid = String(sid).replace(/[^A-Za-z0-9_-]/g, '');
 const sdir = path.join(ROOT, cleanSid);
+const myPid = process.pid;
+const bornMs = Date.now();          // "claim" desta janela (ordem de abertura)
+let userMoved = false, miniState = false, lastPlaced = null;
 
 function hbFresh() { try { return Date.now() - fs.statSync(path.join(sdir, 'hb')).mtimeMs < HB_STALE; } catch { return false; } }
+
+// "abrir minimizada" (opt-in): env JARVIS_HUD_START_MINIMIZED (1/true/on; 0 forca desligado)
+// OU o arquivo start-minimized.flag (compartilhado com o nativo em hud-native/, ou local).
+function wantStartMinimized() {
+  const v = (process.env.JARVIS_HUD_START_MINIMIZED || '').trim().toLowerCase();
+  if (v === '1' || v === 'true' || v === 'yes' || v === 'on') return true;
+  if (v === '0' || v === 'false' || v === 'no' || v === 'off') return false;
+  try { if (fs.existsSync(path.join(__dirname, '..', 'hud-native', 'start-minimized.flag'))) return true; } catch (e) {}
+  try { if (fs.existsSync(path.join(__dirname, 'start-minimized.flag'))) return true; } catch (e) {}
+  return false;
+}
+
+// posiciona no canto direito seguindo o MESMO algoritmo do HudLayout.cs nativo: minimizada
+// sempre acima de cheia; dentro do grupo, ordem de abertura; empilha pela altura real.
+function place(mini) {
+  try { fs.mkdirSync(SLOTS, { recursive: true }); } catch (e) {}
+  const now = Date.now();
+  const w = mini ? MINI_W : W, h = mini ? MINI_H : H;
+  let aboveH = 0;
+  try {
+    for (const f of fs.readdirSync(SLOTS)) {
+      if (!f.endsWith('.slot')) continue;
+      const opid = parseInt(f, 10);
+      if (!opid || opid === myPid) continue;
+      let parts;
+      try { parts = fs.readFileSync(path.join(SLOTS, f), 'utf8').split('|'); } catch (e) { continue; }
+      if (parts.length < 3) continue;
+      const oclaim = parseInt(parts[0], 10), oh = parseInt(parts[1], 10), ohb = parseInt(parts[2], 10);
+      if (isNaN(oclaim) || isNaN(oh) || isNaN(ohb)) continue;
+      if (now - ohb > SLOT_ORPHAN) { try { fs.unlinkSync(path.join(SLOTS, f)); } catch (e) {} continue; }
+      if (now - ohb > SLOT_STALE) continue;               // sem heartbeat: janela morta, nao ocupa espaco
+      const omini = parts.length >= 7 && parts[6] === '1';
+      let above;
+      if (omini !== !!mini) above = omini;                // minimizada sempre ACIMA de cheia
+      else above = oclaim < bornMs || (oclaim === bornMs && opid < myPid);
+      if (above) aboveH += oh + GAP;
+    }
+  } catch (e) {}
+  const area = screen.getPrimaryDisplay().workArea;
+  let x = area.x + area.width - w - MARGIN;
+  let y = area.y + TOPGAP + aboveH;
+  if (y + h > area.y + area.height - 6) y = area.y + TOPGAP;   // estourou embaixo: volta ao topo
+  if (x < area.x + 6) x = area.x + 6;
+  x = Math.round(x); y = Math.round(y);
+  try { fs.writeFileSync(path.join(SLOTS, myPid + '.slot'), bornMs + '|' + h + '|' + now + '|' + x + '|' + y + '|' + w + '|' + (mini ? '1' : '0')); } catch (e) {}
+  return { x: x, y: y, w: w, h: h };
+}
+function releaseSlot() { try { fs.unlinkSync(path.join(SLOTS, myPid + '.slot')); } catch (e) {} }
+function applyBounds(win, x, y, w, h) {
+  lastPlaced = { x: Math.round(x), y: Math.round(y) };
+  try { win.setBounds({ x: lastPlaced.x, y: lastPlaced.y, width: w, height: h }); } catch (e) {}
+}
+function redock(win) {
+  if (userMoved) return;
+  const p = place(miniState);
+  let b = null; try { b = win.getBounds(); } catch (e) {}
+  if (!b || b.x !== p.x || b.y !== p.y || b.width !== p.w || b.height !== p.h) applyBounds(win, p.x, p.y, p.w, p.h);
+}
 
 app.disableHardwareAcceleration();                 // mais leve; evita problemas de GPU/transparencia
 app.on('window-all-closed', () => app.quit());
@@ -30,8 +98,12 @@ app.on('window-all-closed', () => app.quit());
 app.whenReady().then(() => {
   if (mode === 'run' && hbFresh()) { app.quit(); return; }   // ja ha uma telinha viva p/ essa sessao
 
+  const startMin = (mode === 'run') && wantStartMinimized();
+  miniState = startMin;
+  const openMini = shotMini || startMin;
+
   const win = new BrowserWindow({
-    width: shotMini ? MINI_W : W, height: shotMini ? MINI_H : H,
+    width: openMini ? MINI_W : W, height: openMini ? MINI_H : H,
     frame: false, transparent: true, resizable: false, hasShadow: false, movable: true,
     alwaysOnTop: true, skipTaskbar: true, focusable: false, show: false, fullscreenable: false,
     webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false }
@@ -40,21 +112,33 @@ app.whenReady().then(() => {
   try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch (e) {}
 
   const q = 'sid=' + encodeURIComponent(cleanSid) + '&dir=' + encodeURIComponent(sdir) +
-            '&mode=' + mode + '&p=' + shotP + (shotFable ? '&fable=1' : '') + (shotMini ? '&mini=1' : '');
+            '&mode=' + mode + '&p=' + shotP + (shotFable ? '&fable=1' : '') + (openMini ? '&mini=1' : '');
   win.loadFile(path.join(__dirname, 'index.html'), { search: q });
 
   if (mode === 'run') {
-    positionWindow(win);
+    const p0 = place(miniState);
+    applyBounds(win, p0.x, p0.y, p0.w, p0.h);
     win.once('ready-to-show', () => { try { win.showInactive(); } catch (e) { win.show(); } });
+
+    // usuario arrastou (o -webkit-app-region:drag move a janela pelo SO) -> sai do auto-layout
+    win.on('move', () => {
+      if (userMoved) return;
+      try { const b = win.getBounds(); if (!lastPlaced || Math.abs(b.x - lastPlaced.x) > 3 || Math.abs(b.y - lastPlaced.y) > 3) { userMoved = true; releaseSlot(); } } catch (e) {}
+    });
+    // recompacta 1x/s (dock + empilhamento) e mantem o heartbeat do slot fresco
+    const relayout = setInterval(() => { if (!userMoved) redock(win); }, 1000);
+    win.on('closed', () => { try { clearInterval(relayout); } catch (e) {} releaseSlot(); });
+
     ipcMain.on('hud-close', () => { try { win.close(); } catch (e) {} });
-    ipcMain.on('hud-drag', (e, dx, dy) => { try { const p = win.getPosition(); win.setPosition(p[0] + dx, p[1] + dy); } catch (er) {} });
-    // minimizar/restaurar: redimensiona a janela ancorando o canto superior-DIREITO
+    ipcMain.on('hud-drag', (e, dx, dy) => { try { const pp = win.getPosition(); userMoved = true; releaseSlot(); win.setPosition(pp[0] + dx, pp[1] + dy); lastPlaced = { x: pp[0] + dx, y: pp[1] + dy }; } catch (er) {} });
+    // minimizar/restaurar: MINIMIZAR rejunta ao auto-layout e estaciona no dock (mesmo se arrastada)
     ipcMain.on('hud-min', (e, mini) => {
-      try {
-        const b = win.getBounds(), right = b.x + b.width, top = b.y;
-        if (mini) win.setBounds({ x: right - MINI_W, y: top, width: MINI_W, height: MINI_H });
-        else win.setBounds({ x: right - W, y: top, width: W, height: H });
-      } catch (er) {}
+      miniState = !!mini;
+      if (mini) userMoved = false;
+      if (!userMoved) redock(win);
+      else {
+        try { const b = win.getBounds(), right = b.x + b.width, top = b.y, w2 = miniState ? MINI_W : W, h2 = miniState ? MINI_H : H; win.setBounds({ x: right - w2, y: top, width: w2, height: h2 }); lastPlaced = { x: right - w2, y: top }; } catch (er) {}
+      }
     });
   } else {
     win.webContents.once('did-finish-load', async () => {
@@ -64,19 +148,3 @@ app.whenReady().then(() => {
     });
   }
 });
-
-// canto superior direito, empilhando por sessoes vivas (slot simples)
-function positionWindow(win) {
-  let slot = 0;
-  try {
-    const now = Date.now();
-    for (const d of fs.readdirSync(ROOT)) {
-      if (d === cleanSid) continue;
-      try { if (now - fs.statSync(path.join(ROOT, d, 'hb')).mtimeMs < HB_STALE) slot++; } catch (e) {}
-    }
-  } catch (e) {}
-  const area = screen.getPrimaryDisplay().workArea;
-  const x = area.x + area.width - W - 12;
-  const y = area.y + 12 + slot * (H + 10);
-  try { win.setPosition(Math.round(x), Math.round(y)); } catch (e) {}
-}

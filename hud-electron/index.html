@@ -504,7 +504,7 @@ if (MODE === 'shot' || MODE === 'shotshut' || MODE === 'shotboot') {
   if (MODE === 'shotboot') { bootFrame(SHOTP); }
 } else {
   tick(); setInterval(tick, HB);
-  beginBoot();                                           // ignicao cinematica na abertura
+  if (!minimized) beginBoot();                           // ignicao so no modo cheio; minimizada abre direto como capsula
 }
 </script>
 </body>

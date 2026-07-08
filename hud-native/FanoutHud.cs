@@ -3,7 +3,7 @@
 //      jarvis-hud-wf.exe --fanout-shot <out.png>        (QA visual, frame sintetico)
 // Le o arquivo de missao (hud\<id>.json escrito pelo hud-launch/hud-close):
 //   { status, start, proto, agent, task, model, autoCloseSec, doneAt, cost_usd, tokens }
-// Mostra a "legiao" trabalhando: nucleo orquestrador + agentes orbitando + conexoes
+// Mostra o "enxame" trabalhando: nucleo orquestrador + agentes orbitando + conexoes
 // pulsando, protocolo, agente, missao, cronometro e (ao concluir) tempo/tokens/custo R$.
 // PERFORMANCE: anima ~15fps SO enquanto rodando e SO repinta a area do enxame
 // (Invalidate(swarmRect)); dados relidos 1x/s. So transform/opacity no loop -> CPU baixo.
@@ -201,7 +201,7 @@ class FanoutHud : Form {
       if (money.Length > 0) extra = extra.Length > 0 ? extra + "  " + money : money;
       if (extra.Length > 0) g.DrawString(extra, fTiny, B(AmberMut), px + 1, 166);
     } else {
-      g.DrawString("a legiao trabalha, senhor", fTiny, B(AmberDeep), px + 1, 166);
+      g.DrawString("o enxame trabalha, senhor", fTiny, B(AmberDeep), px + 1, 166);
     }
     g.DrawImage(Cine.Overlay(W, H), new Rectangle(0, 0, W, H));   // vidro do painel (scanlines + vinheta)
   }
