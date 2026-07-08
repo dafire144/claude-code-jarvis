@@ -83,7 +83,7 @@ class JarvisHudWF : Form {
   const int MORPH_MS = 300, MINI_W = 182, MINI_H = 54;
   int morphAnchorRight = 0, morphAnchorTop = 0;
   Bitmap fullShot = null, miniShotBmp = null, miniBg = null; bool miniBgDirty = true;
-  static Rectangle minRect = new Rectangle(W - 46, 9, 16, 16);              // botao minimizar (cheio)
+  static Rectangle minRect = new Rectangle(W - 45, 8, 16, 18);              // botao minimizar (cheio)
   static Rectangle miniCloseRect = new Rectangle(MINI_W - 16, 5, 11, 11);   // fechar (mini)
   [System.Runtime.InteropServices.DllImport("winmm.dll")] static extern uint timeBeginPeriod(uint p);
   [System.Runtime.InteropServices.DllImport("winmm.dll")] static extern uint timeEndPeriod(uint p);
@@ -121,7 +121,7 @@ class JarvisHudWF : Form {
   Font fClose = new Font("Consolas", 11f, FontStyle.Bold);
 
   const int W = 380, H = 300, PAD = 16, RAD = 16;
-  static Rectangle closeRect = new Rectangle(W - 26, 9, 18, 18);
+  static Rectangle closeRect = new Rectangle(W - 24, 8, 16, 18);   // fechar (canto sup-direito)
   Rectangle atomRect = new Rectangle(PAD - 4, 48, 80, 84);
 
   // ---- layout das metricas / sparkline ----
@@ -868,7 +868,7 @@ class JarvisHudWF : Form {
     Color sc = status == "OPERANDO" ? HC(Amber, Ember) : status == "ENCERRADO" ? Faint : Online;
     string stxt = (heat >= 0.5 && status == "OPERANDO") ? "PLENA CARGA" : status;
     float sw = g.MeasureString(stxt, fStat).Width;
-    float sx = W - 30 - sw;
+    float sx = W - 56 - sw;                                          // recuado p/ abrir espaco aos 2 botoes
     using (var pillP = RoundedPath(sx - 18, 12, sw + 24, 14, 7)) {   // capsula do status
       using (var pf = new SolidBrush(Color.FromArgb(26, sc))) g.FillPath(pf, pillP);
       using (var pp = new Pen(Color.FromArgb(70, sc), 1f)) g.DrawPath(pp, pillP);
@@ -877,8 +877,9 @@ class JarvisHudWF : Form {
     using (var hb2 = new SolidBrush(Color.FromArgb((int)(40 + 55 * dk), sc))) g.FillEllipse(hb2, sx - 14, 13, 11, 11);
     using (var b = new SolidBrush(sc)) g.FillEllipse(b, sx - 12, 15, 7, 7);
     g.DrawString(stxt, fStat, B(sc), sx, 12);
-    g.DrawString("x", fClose, B(Faint), closeRect.X + 3, closeRect.Y - 2);
-    using (var mp = new Pen(Faint, 1.6f)) g.DrawLine(mp, minRect.X + 3, minRect.Y + 10, minRect.X + 13, minRect.Y + 10);   // botao minimizar (traco)
+    // ---- botoes MINIMIZAR (–) e FECHAR (x), no canto sup-direito, em ambar visivel ----
+    using (var mp = new Pen(AmberMut, 2f)) { mp.StartCap = LineCap.Round; mp.EndCap = LineCap.Round; g.DrawLine(mp, minRect.X + 3, minRect.Y + 9, minRect.X + 13, minRect.Y + 9); }
+    g.DrawString("x", fClose, B(AmberMut), closeRect.X + 2, closeRect.Y - 3);
 
     // "HA Xs" (frescor): responde travou-ou-pensando, quase gratis (1 subtracao/1 string)
     string idleTxt = IdleText();
