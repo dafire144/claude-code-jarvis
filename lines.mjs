@@ -275,7 +275,6 @@ const NEW_LINES = {
   ],
   fanout: [
     "Despertando as unidades adormecidas, senhor.",
-    "A legião está de pé e aguardando ordens, senhor.",
     "Protocolo Enxame iniciado, senhor. Todos em posição.",
     "Cada agente com sua missão, senhor. Nada se sobrepõe.",
     "Formação de ataque montada, senhor.",
