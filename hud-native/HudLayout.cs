@@ -10,11 +10,36 @@ using System.Reflection;
 using System.Windows.Forms;
 
 static class HudLayout {
-  const int TOPGAP = 42;    // "logo abaixo dos botoes de minimizar/fechar do app"
-  const int MARGIN = 12;    // margem da borda direita da tela
+  static int TOPGAP = 42;   // "logo abaixo dos botoes"; ajustavel AO VIVO via hud-dock.cfg (top=)
+  static int MARGIN = 12;   // margem da borda direita; ajustavel AO VIVO via hud-dock.cfg (right=)
   const int GAP = 10;       // espaco vertical entre telinhas
   const long STALE = 4000;  // slot sem heartbeat ha >4s = janela morta -> ignora
   const long ORPHAN = 12000;// >12s -> apaga o arquivo orfao
+
+  // posicao do dock configuravel: le <exeDir>\hud-dock.cfg (linhas "top=NN" / "right=NN"),
+  // no maximo 1x/s -> editar o arquivo reposiciona as telinhas ao vivo. Sem arquivo = 42/12.
+  static long cfgAt = 0;
+  static void LoadCfg() {
+    long now = Now();
+    if (cfgAt != 0 && now - cfgAt < 1000) return;
+    cfgAt = now;
+    int top = 42, margin = 12;
+    try {
+      string exeDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+      string f = Path.Combine(exeDir, "hud-dock.cfg");
+      if (File.Exists(f)) {
+        foreach (string raw in File.ReadAllLines(f)) {
+          string line = raw.Trim(); if (line.Length == 0 || line[0] == '#') continue;
+          int eq = line.IndexOf('='); if (eq <= 0) continue;
+          string k = line.Substring(0, eq).Trim().ToLowerInvariant();
+          int n; if (!int.TryParse(line.Substring(eq + 1).Trim(), out n)) continue;
+          if (k == "top" || k == "topgap") top = n;
+          else if (k == "right" || k == "margin" || k == "rightmargin") margin = n;
+        }
+      }
+    } catch {}
+    TOPGAP = top; MARGIN = margin;
+  }
 
   static long Now() { return (long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds; }
 
@@ -33,6 +58,7 @@ static class HudLayout {
     string dir = Dir();
     string me = Path.Combine(dir, pid + ".slot");
     long now = Now();
+    LoadCfg();
 
     // soma alturas das janelas "acima": toda minimizada fica acima de qualquer cheia; dentro
     // do mesmo grupo, ordem de abertura (claim menor; empate -> pid menor).

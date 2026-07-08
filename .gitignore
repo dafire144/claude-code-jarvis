@@ -26,6 +26,7 @@ clips/prefix/
 
 # --- Config local do HUD (opt-in, nao versionar: manter o padrao publico) ---
 hud-native/start-minimized.flag
+hud-native/hud-dock.cfg
 
 # --- SO / build ---
 .DS_Store

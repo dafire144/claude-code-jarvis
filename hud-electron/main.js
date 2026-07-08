@@ -15,7 +15,22 @@ const W = 380, H = 300, MINI_W = 182, MINI_H = 54, HB_STALE = 6000;
 const ROOT = path.join(__dirname, '..', 'hud-sessions');
 // coordenador de layout compartilhado — MESMO dir/protocolo do nativo (HudLayout.cs)
 const SLOTS = path.join(__dirname, '..', 'hud-native', '.slots');
-const TOPGAP = 42, MARGIN = 12, GAP = 10, SLOT_STALE = 4000, SLOT_ORPHAN = 12000;
+const GAP = 10, SLOT_STALE = 4000, SLOT_ORPHAN = 12000;
+// posicao do dock configuravel: le hud-native/hud-dock.cfg ("top=NN"/"right=NN"), default 42/12.
+function loadDock() {
+  let top = 42, margin = 12;
+  try {
+    for (const raw of fs.readFileSync(path.join(__dirname, '..', 'hud-native', 'hud-dock.cfg'), 'utf8').split(/\r?\n/)) {
+      const line = raw.trim(); if (!line || line[0] === '#') continue;
+      const eq = line.indexOf('='); if (eq <= 0) continue;
+      const k = line.slice(0, eq).trim().toLowerCase(), n = parseInt(line.slice(eq + 1).trim(), 10);
+      if (isNaN(n)) continue;
+      if (k === 'top' || k === 'topgap') top = n;
+      else if (k === 'right' || k === 'margin' || k === 'rightmargin') margin = n;
+    }
+  } catch (e) {}
+  return { top: top, margin: margin };
+}
 
 // argumentos (depois do caminho do app)
 const argv = process.argv.slice(app.isPackaged ? 1 : 2);
@@ -71,10 +86,11 @@ function place(mini) {
       if (above) aboveH += oh + GAP;
     }
   } catch (e) {}
+  const dock = loadDock();
   const area = screen.getPrimaryDisplay().workArea;
-  let x = area.x + area.width - w - MARGIN;
-  let y = area.y + TOPGAP + aboveH;
-  if (y + h > area.y + area.height - 6) y = area.y + TOPGAP;   // estourou embaixo: volta ao topo
+  let x = area.x + area.width - w - dock.margin;
+  let y = area.y + dock.top + aboveH;
+  if (y + h > area.y + area.height - 6) y = area.y + dock.top;   // estourou embaixo: volta ao topo
   if (x < area.x + 6) x = area.x + 6;
   x = Math.round(x); y = Math.round(y);
   try { fs.writeFileSync(path.join(SLOTS, myPid + '.slot'), bornMs + '|' + h + '|' + now + '|' + x + '|' + y + '|' + w + '|' + (mini ? '1' : '0')); } catch (e) {}
