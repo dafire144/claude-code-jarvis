@@ -70,6 +70,21 @@ class JarvisHudWF : Form {
   // desse cache e desenha o nucleo vivo por cima -> quadro barato -> da pra rodar liso a
   // 30/60fps sem repetir o Render() pesado (grade, cantoneiras, vidro, MeasureString...).
   Bitmap bgBmp = null; bool bgDirty = true; bool periodSet = false;
+  // ---- FX cinematicos por EVENTO: ondas/explosoes/flashes breves de painel inteiro.
+  // Enquanto ha FX vivo (ou 1 quadro depois de acabar) o anim tick pinta o painel TODO;
+  // senao so o nucleo -> o custo extra so acontece nos instantes de evento (barato na media). ----
+  struct Fx { public int type; public long start; public int dur; }
+  List<Fx> fxs = new List<Fx>();
+  const int FX_RIPPLE = 0, FX_BURST = 1, FX_FLASH = 2;
+  long fxLastFeed = 0; int fxLastDone = -1; string fxLastStatus = ""; bool wasFx = false;
+  // ---- MINIMIZAR: a telinha colapsa numa MINI-CAPSULA reator no canto e reabre no clique.
+  // Mesmo processo, dois estados (cheio / mini); o morph faz a implosao/expansao cinematica.
+  bool minimized = false, morphing = false; long morphStart = 0; int morphDir = 0;
+  const int MORPH_MS = 300, MINI_W = 182, MINI_H = 54;
+  int morphAnchorRight = 0, morphAnchorTop = 0;
+  Bitmap fullShot = null, miniShotBmp = null, miniBg = null; bool miniBgDirty = true;
+  static Rectangle minRect = new Rectangle(W - 46, 9, 16, 16);              // botao minimizar (cheio)
+  static Rectangle miniCloseRect = new Rectangle(MINI_W - 16, 5, 11, 11);   // fechar (mini)
   [System.Runtime.InteropServices.DllImport("winmm.dll")] static extern uint timeBeginPeriod(uint p);
   [System.Runtime.InteropServices.DllImport("winmm.dll")] static extern uint timeEndPeriod(uint p);
 
@@ -82,6 +97,9 @@ class JarvisHudWF : Form {
   double loadPeak = 0;            // pico VU da carga: segura o maximo e decai (realismo de medidor)
   long lastJvsTs = 0;             // ultima fala do Jarvis (p/ flash do chip)
   string modelShort = "";         // etiqueta do modelo real da sessao (OPUS/SONNET/...)
+  // ---- reator REATIVO: gira/brilha conforme a atividade real (carga + APM) ----
+  double spin = 0; long spinMs = 0;   // angulo acumulado (velocidade variavel sem "saltos")
+  double CoreEnergy() { return Math.Max(loadPct, Math.Min(1.0, apm / 45.0)); }   // 0..1 atividade
 
   static Color Ink1 = C("#121F17"), Ink2 = C("#070E09");
   static Color Amber = C("#E8B24A"), AmberBright = C("#F4C25C"), AmberMut = C("#BE9E6C"), AmberDeep = C("#8A6A2E");
@@ -116,6 +134,7 @@ class JarvisHudWF : Form {
   [STAThread]
   static void Main(string[] args) {
     if (args.Length >= 2 && args[0] == "--shot") { Shot(args[1], args.Length > 2 && args[2] == "fable"); return; }
+    if (args.Length >= 2 && args[0] == "--shot-mini") { ShotMini(args[1], args.Length > 2 && args[2] == "fable"); return; }
     if (args.Length >= 3 && args[0] == "--shot-shut") { ShotShut(args[1], double.Parse(args[2], CultureInfo.InvariantCulture)); return; }
     if (args.Length >= 3 && args[0] == "--shot-boot") { ShotBoot(args[1], double.Parse(args[2], CultureInfo.InvariantCulture), args.Length > 3 && args[3] == "fable"); return; }
     if (args.Length >= 2 && args[0] == "--fanout-shot") { FanoutHud.Shot(args[1], args.Length > 2 && args[2] == "done"); return; }
@@ -138,6 +157,16 @@ class JarvisHudWF : Form {
     }
     var bmp = new Bitmap(W, H);
     using (var g = Graphics.FromImage(bmp)) f.Render(g);
+    bmp.Save(outPng, System.Drawing.Imaging.ImageFormat.Png);
+  }
+
+  // QA visual da MINI-CAPSULA (frame sintetico). Arg "fable" = modo FABLE 5.
+  static void ShotMini(string outPng, bool fableMode) {
+    var f = new JarvisHudWF("shot-demo", null);
+    f.Seed(); f.title = "GC Haven - Geral";
+    if (fableMode) { f.fable = true; f.heat = 1; }
+    var bmp = new Bitmap(MINI_W, MINI_H);
+    using (var g = Graphics.FromImage(bmp)) f.RenderMini(g);
     bmp.Save(outPng, System.Drawing.Imaging.ImageFormat.Png);
   }
 
@@ -228,16 +257,26 @@ class JarvisHudWF : Form {
         if (NowMs() - bootStartMs >= BOOT_MS) { EndBoot(); return; }
         Invalidate(); return;                       // ignicao repinta a janela toda (one-shot)
       }
+      if (morphing) {                                 // colapso/expansao da mini-capsula (one-shot)
+        double mt = (NowMs() - morphStart) / (double)MORPH_MS;
+        if (mt >= 1) { EndMorph(); return; }
+        ApplyMorphBounds(mt); Invalidate(); return;
+      }
       // fase pelo RELOGIO (nao por incremento): velocidade estavel em qualquer fps,
       // sem "saltos" se um tick atrasar -- os satelites do Fable denunciavam (07/07)
       phase = (NowMs() - bornMs) / 500.0;
+      UpdateSpin();                                    // rotacao do reator acelera com a atividade
+      if (minimized) { Invalidate(); return; }         // mini e pequeno: repinta tudo (barato)
       if (inTrans) {                                   // transicao de modo: a janela INTEIRA anima
         double t = (NowMs() - transStart) / (double)TRANS_MS;
         if (t >= 1) { heat = heatTo; inTrans = false; bgDirty = true; animTimer.Interval = CoreInterval(); }
         else heat = heatFrom + (heatTo - heatFrom) * SmoothStep(t);
         Invalidate(); return;
       }
-      Invalidate(atomRect);   // regime normal: so a regiao do nucleo (blit do cache + nucleo vivo)
+      // FX vivo (ou o 1o quadro apos acabar, p/ limpar) -> pinta o painel TODO; senao so o nucleo
+      bool nowFx = FxActive();
+      if (nowFx || wasFx) Invalidate(); else Invalidate(atomRect);
+      wasFx = nowFx;
     };
     animTimer.Start();    // nucleo anima SEMPRE (repinta so o atomRect -> custo baixo)
 
@@ -279,9 +318,18 @@ class JarvisHudWF : Form {
     ReadModel();          // modo FABLE 5 acende/apaga junto com o modelo da sessao
     Recompute();          // recalcula APM/carga/sparkline 1x/s (barato)
     UpdateStatus();
+    // dispara FX ao detectar EVENTOS reais: telemetria nova -> onda; tarefa 100% -> explosao
+    // dourada; energizou (ONLINE->OPERANDO) -> flash. Guardas evitam disparo na 1a leitura.
+    if (fxLastFeed > 0 && lastFeedTs > fxLastFeed) AddFx(FX_RIPPLE, 850);
+    fxLastFeed = lastFeedTs;
+    if (taskTotal > 0 && taskDone >= taskTotal && fxLastDone >= 0 && fxLastDone < taskTotal) AddFx(FX_BURST, 1500);
+    fxLastDone = taskDone;
+    if (status == "OPERANDO" && fxLastStatus.Length > 0 && fxLastStatus != "OPERANDO") AddFx(FX_FLASH, 750);
+    fxLastStatus = status;
     bgDirty = true;       // dados mudaram -> refaz o fundo cacheado no proximo quadro (1x/s)
-    if (animTimer != null && !closing && !inTrans && !booting) {   // fps segue a atividade
-      int want = CoreInterval();
+    if (animTimer != null && !closing && !inTrans && !booting && !morphing) {   // fps segue a atividade
+      // durante FX (painel inteiro repinta) baixa p/ ~22fps -> o custo de evento nao pesa em PC fraco
+      int want = FxActive() ? 45 : CoreInterval();
       if (animTimer.Interval != want) animTimer.Interval = want;
     }
     // encerra sozinho 20s apos o fim da sessao (com animacao de desligamento)
@@ -296,7 +344,8 @@ class JarvisHudWF : Form {
     if (!File.Exists(endPath) && NowMs() - Math.Max(lastFeedTs, bornMs) > IDLE_CLOSE) { BeginShutdown(); return; }
     // pasta sumiu (sessao limpa) -> encerra
     if (!Directory.Exists(dir)) { BeginShutdown(); return; }
-    if (!userMoved && !dragging) { var np = HudLayout.Place(pid, bornMs, W, H, false); if (np != Location) Location = np; }
+    if (!userMoved && !dragging && !morphing) { var np = HudLayout.Place(pid, bornMs, CurW(), CurH(), false); if (np != Location) Location = np; }
+    if (minimized) miniBgDirty = true;   // atualiza o texto da mini-capsula 1x/s
     Invalidate();
   }
 
@@ -370,6 +419,7 @@ class JarvisHudWF : Form {
   // inteira por TRANS_MS a ~60fps. One-shot: fora da transicao o custo volta ao normal.
   void BeginModelTrans() {
     if (mutex == null) { heat = fable ? 1 : 0; return; }   // modo --shot: sem animacao
+    if (minimized || morphing) { heat = fable ? 1 : 0; miniBgDirty = true; return; }   // mini: troca sem a onda (sem espaco)
     inTrans = true; transStart = NowMs(); heatFrom = heat; heatTo = fable ? 1 : 0;
     if (animTimer != null && !closing) animTimer.Interval = 16;
   }
@@ -439,6 +489,8 @@ class JarvisHudWF : Form {
     try {
       if (closing) { PaintShutdown(e.Graphics); return; }
       if (booting) { PaintBoot(e.Graphics); return; }
+      if (morphing) { PaintMorph(e.Graphics); return; }   // colapso/expansao da mini-capsula
+      if (minimized) { PaintMini(e); return; }            // mini-capsula reator no canto
       if (inTrans) { Render(e.Graphics); return; }   // transicao: painel inteiro anima (one-shot, sem cache)
       // regime normal: blita a regiao invalidada do FUNDO cacheado + desenha o nucleo vivo por cima.
       // Assim o unico trabalho por quadro (a 30/60fps) e um blit barato + o nucleo -> fim do "travado".
@@ -453,7 +505,155 @@ class JarvisHudWF : Form {
       g2.SmoothingMode = SmoothingMode.AntiAlias;
       g2.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
       DrawCore(g2, PAD + 36, 88);                                      // nucleo vivo (unico item a 30/60fps)
+      if (fxs.Count > 0 && clip.Width > W - 20) DrawFx(g2);            // FX de evento (so no quadro cheio)
     } catch { /* 1 frame ruim nunca pode travar/derrubar a janela */ }
+  }
+
+  // ------- FX cinematicos por evento -------
+  void AddFx(int type, int dur) { var f = new Fx(); f.type = type; f.start = NowMs(); f.dur = dur; fxs.Add(f); if (fxs.Count > 6) fxs.RemoveAt(0); }
+  bool FxActive() { long n = NowMs(); for (int i = 0; i < fxs.Count; i++) if (n - fxs[i].start < fxs[i].dur) return true; return false; }
+  void DrawFx(Graphics g) {
+    long n = NowMs(); float cx = PAD + 36, cy = 88;
+    for (int i = fxs.Count - 1; i >= 0; i--) {
+      var f = fxs[i];
+      double t = (double)(n - f.start) / f.dur;
+      if (t >= 1) { fxs.RemoveAt(i); continue; }
+      if (t < 0) continue;
+      if (f.type == FX_RIPPLE) DrawRippleFx(g, cx, cy, t);
+      else if (f.type == FX_BURST) DrawBurstFx(g, cx, cy, t);
+      else if (f.type == FX_FLASH) DrawFlashFx(g, t);
+    }
+  }
+  // ONDA DE CHOQUE: anel expandindo do nucleo a cada telemetria nova (a sessao "pulsa" viva)
+  void DrawRippleFx(Graphics g, float cx, float cy, double t) {
+    double e = 1 - (1 - t) * (1 - t);
+    float r = (float)(18 + e * 300);
+    int a = (int)(130 * (1 - t) * (1 - t));
+    if (a > 0) using (var p = new Pen(Color.FromArgb(a, HC(Amber, MythGold)), (float)(2.6 * (1 - t) + 0.5))) g.DrawEllipse(p, cx - r, cy - r, 2 * r, 2 * r);
+    float r2 = r * 0.72f; int a2 = (int)(a * 0.5);
+    if (a2 > 0) using (var p2 = new Pen(Color.FromArgb(a2, HC(AmberBright, MythPale)), 1f)) g.DrawEllipse(p2, cx - r2, cy - r2, 2 * r2, 2 * r2);
+  }
+  // EXPLOSAO DOURADA: raios + clarao central ao concluir uma tarefa (100%)
+  void DrawBurstFx(Graphics g, float cx, float cy, double t) {
+    double e = 1 - (1 - t) * (1 - t);
+    int a = (int)(220 * (1 - t));
+    for (int k = 0; k < 12; k++) {
+      double ang = k * Math.PI / 6 + 0.26;
+      float r0 = (float)(10 + e * 40), r1 = (float)(20 + e * 150);
+      using (var p = new Pen(Color.FromArgb(a, 255, 224, 150), (float)(2.2 * (1 - t) + 0.4))) { p.StartCap = LineCap.Round; p.EndCap = LineCap.Round; g.DrawLine(p, cx + (float)(Math.Cos(ang) * r0), cy + (float)(Math.Sin(ang) * r0), cx + (float)(Math.Cos(ang) * r1), cy + (float)(Math.Sin(ang) * r1)); }
+    }
+    float gr = (float)(18 + e * 24); int ga = (int)(160 * (1 - t) * (1 - t));
+    if (ga > 0) using (var gp = new GraphicsPath()) { gp.AddEllipse(cx - gr, cy - gr, 2 * gr, 2 * gr); using (var pgb = new PathGradientBrush(gp)) { pgb.CenterColor = Color.FromArgb(ga, 255, 246, 210); pgb.SurroundColors = new Color[] { Color.FromArgb(0, 255, 214, 138) }; g.FillPath(pgb, gp); } }
+  }
+  // FLASH DE ENERGIZACAO: pulso quente vindo das bordas quando a sessao volta a OPERAR
+  void DrawFlashFx(Graphics g, double t) {
+    int a = (int)(60 * Math.Sin(Math.PI * t));
+    if (a <= 0) return;
+    using (var gp = new GraphicsPath()) {
+      gp.AddEllipse(-W * 0.3f, -H * 0.4f, W * 1.6f, H * 1.8f);
+      using (var pgb = new PathGradientBrush(gp)) {
+        pgb.CenterPoint = new PointF(W / 2f, H * 0.42f);
+        pgb.CenterColor = Color.FromArgb(0, 0, 0, 0);
+        pgb.SurroundColors = new Color[] { Color.FromArgb(a, HC(Amber, Ember)) };
+        g.FillPath(pgb, gp);
+      }
+    }
+  }
+
+  // ------- MINIMIZAR: morph (implosao/expansao) + mini-capsula reator -------
+  int CurW() { return minimized ? MINI_W : W; }
+  int CurH() { return minimized ? MINI_H : H; }
+  // raio dos cantos interpolado pela altura: 16 (cheio) -> 27 (pilula mini)
+  float RegionRad(int h) {
+    double p = (double)(H - h) / (H - MINI_H); if (p < 0) p = 0; if (p > 1) p = 1;
+    return (float)(RAD + (MINI_H / 2.0 - RAD) * p);
+  }
+  static ColorMatrix AlphaMatrix(double a) { if (a < 0) a = 0; if (a > 1) a = 1; var m = new ColorMatrix(); m.Matrix33 = (float)a; return m; }
+
+  void BeginMorph(bool toMini) {
+    if (morphing) return;
+    morphing = true; morphDir = toMini ? 1 : -1; morphStart = NowMs();
+    morphAnchorRight = Location.X + Width; morphAnchorTop = Location.Y;   // ancora o canto superior-DIREITO
+    try { fullShot = new Bitmap(W, H); using (var g = Graphics.FromImage(fullShot)) Render(g); } catch { fullShot = null; }
+    try { miniShotBmp = new Bitmap(MINI_W, MINI_H); using (var g = Graphics.FromImage(miniShotBmp)) RenderMini(g); } catch { miniShotBmp = null; }
+    if (animTimer != null) animTimer.Interval = 8;                        // morph liso ~120fps
+  }
+  void ApplyMorphBounds(double t) {
+    double p = morphDir == 1 ? SmoothStep(t) : SmoothStep(1 - t);         // p: 0=cheio .. 1=mini
+    int w = (int)(W + (MINI_W - W) * p), h = (int)(H + (MINI_H - H) * p);
+    try { SetBounds(morphAnchorRight - w, morphAnchorTop, w, h); using (var gp = RoundedPath(0, 0, w, h, RegionRad(h))) Region = new Region(gp); } catch {}
+  }
+  void EndMorph() {
+    morphing = false; minimized = (morphDir == 1);
+    int w = CurW(), h = CurH();
+    try { SetBounds(morphAnchorRight - w, morphAnchorTop, w, h); using (var gp = RoundedPath(0, 0, w, h, RegionRad(h))) Region = new Region(gp); } catch {}
+    try { if (fullShot != null) { fullShot.Dispose(); fullShot = null; } } catch {}
+    try { if (miniShotBmp != null) { miniShotBmp.Dispose(); miniShotBmp = null; } } catch {}
+    bgDirty = true; miniBgDirty = true;
+    if (animTimer != null && !closing) animTimer.Interval = CoreInterval();
+    Invalidate();
+  }
+  // dissolve cruzado + escala geometrica: o painel cheio some encolhendo enquanto a
+  // mini-capsula surge (e vice-versa). Reusa a linguagem de snapshot da ignicao/desligamento.
+  void PaintMorph(Graphics g) {
+    double t = (NowMs() - morphStart) / (double)MORPH_MS; if (t < 0) t = 0; if (t > 1) t = 1;
+    double p = morphDir == 1 ? SmoothStep(t) : SmoothStep(1 - t);
+    int w = Width, h = Height;
+    g.SmoothingMode = SmoothingMode.AntiAlias; g.InterpolationMode = InterpolationMode.Bilinear;
+    using (var bgb = new SolidBrush(Ink2)) using (var gp = RoundedPath(0, 0, w, h, RegionRad(h))) g.FillPath(bgb, gp);
+    if (fullShot != null && p < 0.98) using (var ia = new ImageAttributes()) { ia.SetColorMatrix(AlphaMatrix(1 - p)); g.DrawImage(fullShot, new Rectangle(0, 0, w, h), 0, 0, W, H, GraphicsUnit.Pixel, ia); }
+    if (miniShotBmp != null && p > 0.02) using (var ia = new ImageAttributes()) { ia.SetColorMatrix(AlphaMatrix(p)); g.DrawImage(miniShotBmp, new Rectangle(0, 0, w, h), 0, 0, MINI_W, MINI_H, GraphicsUnit.Pixel, ia); }
+  }
+
+  void PaintMini(PaintEventArgs e) {
+    if (miniBg == null || miniBgDirty) { if (miniBg == null) miniBg = new Bitmap(MINI_W, MINI_H); using (var g0 = Graphics.FromImage(miniBg)) RenderMiniBg(g0); miniBgDirty = false; }
+    var g = e.Graphics;
+    var prev = g.CompositingMode; g.CompositingMode = CompositingMode.SourceCopy; g.DrawImage(miniBg, 0, 0); g.CompositingMode = prev;
+    g.SmoothingMode = SmoothingMode.AntiAlias; g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+    DrawMiniCore(g, 28, MINI_H / 2f);
+  }
+  // snapshot completo do mini (fundo + nucleo) usado pelo morph
+  void RenderMini(Graphics g) { RenderMiniBg(g); g.SmoothingMode = SmoothingMode.AntiAlias; DrawMiniCore(g, 28, MINI_H / 2f); }
+
+  void RenderMiniBg(Graphics g) {
+    g.SmoothingMode = SmoothingMode.AntiAlias; g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+    var rect = new Rectangle(0, 0, MINI_W, MINI_H);
+    using (var bg = new LinearGradientBrush(rect, HC(Ink1, InkF1), HC(Ink2, InkF2), 60f)) using (var gp = RoundedPath(0, 0, MINI_W, MINI_H, MINI_H / 2f)) g.FillPath(bg, gp);
+    double hk = 0.5 + 0.5 * Math.Sin(NowMs() / 800.0);
+    using (var gp = RoundedPath(0.7f, 0.7f, MINI_W - 1.4f, MINI_H - 1.4f, (MINI_H - 1.4f) / 2f))
+    using (var pen = new Pen(Color.FromArgb((int)(200 + 25 * heat), HC(BorderC, Lerp(MythGold, Ember, hk * 0.7))), 1.3f)) g.DrawPath(pen, gp);
+    float tx = 54;
+    Color sc = status == "OPERANDO" ? HC(Amber, Ember) : status == "ENCERRADO" ? Faint : Online;
+    string t1 = string.IsNullOrEmpty(title) ? "J.A.R.V.I.S." : title;
+    g.DrawString(Fit(g, t1, fSess, MINI_W - tx - 20), fSess, B(HC(Amber, MythGold)), tx, 8);
+    string t2 = (heat >= 0.5 && status == "OPERANDO" ? "PLENA CARGA" : status) + "  " + Elapsed();
+    g.DrawString(Fit(g, t2, fTiny, MINI_W - tx - 14), fTiny, B(sc), tx, 27);
+    // no mini, o Fable ja se anuncia pela paleta superaquecida + "PLENA CARGA" (badge sobreporia o titulo)
+    g.DrawString("x", fTiny, B(Faint), miniCloseRect.X + 1, miniCloseRect.Y - 2);
+    g.DrawImage(Cine.Overlay(MINI_W, MINI_H), rect);
+  }
+
+  // mini reator: versao enxuta do nucleo (le bem em ~40px) — anel + ticks + arco + raios + core.
+  void DrawMiniCore(Graphics g, float cx, float cy) {
+    float a = (float)spin; double energy = CoreEnergy();
+    double pulse = 0.5 + 0.5 * Math.Sin(phase * (2.2 + 1.6 * energy));
+    Color cMain = HC(Amber, MythGold), cHot = HC(AmberBright, MythPale);
+    using (var gl = new SolidBrush(Color.FromArgb(Clamp255((int)(38 + 26 * pulse + 26 * energy)), cHot))) g.FillEllipse(gl, cx - 16, cy - 16, 32, 32);
+    using (var p = new Pen(Color.FromArgb(60, cMain), 1f)) g.DrawEllipse(p, cx - 18, cy - 18, 36, 36);
+    var st = g.Save(); g.TranslateTransform(cx, cy); g.RotateTransform(a);
+    using (var p = new Pen(Color.FromArgb(150, cMain), 1.6f)) { for (int i = 0; i < 8; i++) { double r = i * Math.PI / 4; g.DrawLine(p, (float)(Math.Cos(r) * 14), (float)(Math.Sin(r) * 14), (float)(Math.Cos(r) * 17.5), (float)(Math.Sin(r) * 17.5)); } }
+    g.Restore(st);
+    st = g.Save(); g.TranslateTransform(cx, cy); g.RotateTransform(-a * 1.4f);
+    using (var p = new Pen(Color.FromArgb(210, cHot), 1.8f)) { p.StartCap = LineCap.Round; p.EndCap = LineCap.Round; g.DrawArc(p, -12, -12, 24, 24, 20, 130); }
+    g.Restore(st);
+    st = g.Save(); g.TranslateTransform(cx, cy); g.RotateTransform(a * 0.55f);
+    for (int i = 0; i < 8; i++) { double ang = i * Math.PI / 4; double len = 8 + pulse * 2.5; using (var p = new Pen(Color.FromArgb(Clamp255((int)(170 * (0.6 + 0.4 * pulse))), (i % 2 == 0) ? cHot : cMain), 1.3f)) { p.StartCap = LineCap.Round; p.EndCap = LineCap.Round; g.DrawLine(p, (float)(Math.Cos(ang) * 2.5), (float)(Math.Sin(ang) * 2.5), (float)(Math.Cos(ang) * len), (float)(Math.Sin(ang) * len)); } }
+    g.Restore(st);
+    float gr = 6f + (float)(pulse * 2.5);
+    using (var gpath = new GraphicsPath()) { gpath.AddEllipse(cx - gr, cy - gr, 2 * gr, 2 * gr); using (var pgb = new PathGradientBrush(gpath)) { pgb.CenterPoint = new PointF(cx, cy); pgb.CenterColor = Color.FromArgb(Clamp255((int)(160 + 70 * pulse + 30 * energy)), 255, 244, 214); pgb.SurroundColors = new Color[] { Color.FromArgb(0, cMain) }; g.FillPath(pgb, gpath); } }
+    float pr = (float)(2.6 + 0.7 * energy) + (float)(pulse * 1.2);
+    using (var b = new SolidBrush(cMain)) g.FillEllipse(b, cx - pr, cy - pr, 2 * pr, 2 * pr);
+    using (var b = new SolidBrush(Lerp(Color.FromArgb(255, 255, 248, 232), Color.White, heat))) g.FillEllipse(b, cx - 1.5f, cy - 1.5f, 3f, 3f);
   }
 
   // ------- DESLIGAMENTO ANIMADO: esfria o nucleo e colapsa a tela estilo CRT -------
@@ -461,8 +661,9 @@ class JarvisHudWF : Form {
   // (nao e animacao continua): so roda quando a telinha vai fechar.
   void BeginShutdown() {
     if (closing) return;
+    if (minimized || morphing) { RealClose(); return; }                       // mini nao tem espaco p/ o CRT: fecha quieto
     if (booting) {                                                             // desligar vence a ignicao
-      booting = false; try { timeEndPeriod(1); } catch {}
+      booting = false;
       try { if (bootBmp != null) { bootBmp.Dispose(); bootBmp = null; } } catch {}
     }
     closing = true; closeStartMs = NowMs();
@@ -677,6 +878,7 @@ class JarvisHudWF : Form {
     using (var b = new SolidBrush(sc)) g.FillEllipse(b, sx - 12, 15, 7, 7);
     g.DrawString(stxt, fStat, B(sc), sx, 12);
     g.DrawString("x", fClose, B(Faint), closeRect.X + 3, closeRect.Y - 2);
+    using (var mp = new Pen(Faint, 1.6f)) g.DrawLine(mp, minRect.X + 3, minRect.Y + 10, minRect.X + 13, minRect.Y + 10);   // botao minimizar (traco)
 
     // "HA Xs" (frescor): responde travou-ou-pensando, quase gratis (1 subtracao/1 string)
     string idleTxt = IdleText();
@@ -866,22 +1068,34 @@ class JarvisHudWF : Form {
     }
   }
 
+  // acumula o angulo do reator: 16 graus/s em repouso .. ~62 graus/s a plena carga.
+  // Velocidade VARIAVEL sem "saltos" (integra por dt real; nao multiplica a fase por um
+  // fator que muda). Chamado 1x por quadro no anim tick.
+  void UpdateSpin() {
+    long n = NowMs(); if (spinMs == 0) spinMs = n;
+    double sp = 16.0 + 46.0 * CoreEnergy();
+    spin += (n - spinMs) / 1000.0 * sp; spinMs = n;
+    if (spin > 3600000.0) spin -= 3600000.0;            // multiplo de 360 -> mesmo angulo, sem estourar
+  }
+
   // NUCLEO DO JARVIS: aneis girando + RAIOS DE LUZ emanando + glow radial respirando + core.
-  // Anima SEMPRE (o animTimer roda continuo e repinta so o atomRect -> custo baixo).
+  // Anima SEMPRE (o animTimer roda continuo e repinta so o atomRect -> custo baixo). REATIVO:
+  // gira mais rapido, brilha mais forte e solta DESCARGAS eletricas conforme a atividade real.
   // MODO FABLE 5 (classe Mythos): paleta ouro-branco, 16 raios mais longos, 3 satelites
-  // orbitando com rastro e nucleo branco puro -- mesmos primitivos baratos de sempre,
-  // nada novo entra no loop de 66ms alem de ~8 elipses.
+  // orbitando com rastro e nucleo branco puro -- mesmos primitivos baratos de sempre.
   void DrawCore(Graphics g, float cx, float cy) {
     float R = 30;
-    float a = (float)(phase * 20.0);                          // rotacao base (graus)
-    double pulse = 0.5 + 0.5 * Math.Sin(phase * 2.2);         // respiro 0..1
+    float a = (float)spin;                                    // rotacao base (graus) -- reativa
+    double energy = CoreEnergy();                             // 0..1 atividade (carga/APM)
+    double rev = 0.72 + 0.5 * energy;                         // "revs" -> brilho sobe com a carga
+    double pulse = 0.5 + 0.5 * Math.Sin(phase * (2.2 + 1.6 * energy));   // respiro acelera sob carga
     Color cMain = HC(Amber, MythGold), cHot = HC(AmberBright, MythPale);
 
     if (heat > 0.02) {   // corona de OVERHEAT: brasa tremulando atras do nucleo (entra com o calor)
       double fl = 0.55 + 0.45 * Math.Sin(phase * 7.3) * Math.Sin(phase * 3.1);
       using (var hb = new SolidBrush(Color.FromArgb((int)((34 + 30 * fl) * heat), Ember))) g.FillEllipse(hb, cx - 30, cy - 30, 60, 60);
     }
-    using (var gl = new SolidBrush(Color.FromArgb((int)(36 + 10 * heat), cHot))) g.FillEllipse(gl, cx - 24, cy - 24, 48, 48);
+    using (var gl = new SolidBrush(Color.FromArgb(Clamp255((int)((36 + 10 * heat) * rev + 26 * energy)), cHot))) g.FillEllipse(gl, cx - 24, cy - 24, 48, 48);
     using (var p = new Pen(Color.FromArgb(55, cMain), 1f)) g.DrawEllipse(p, cx - R, cy - R, 2 * R, 2 * R);
     using (var p = new Pen(Color.FromArgb(22, BorderC), 1f)) g.DrawEllipse(p, cx - R - 3, cy - R - 3, 2 * R + 6, 2 * R + 6);
 
@@ -928,7 +1142,7 @@ class JarvisHudWF : Form {
       double len = (lng ? lenL : lenS) + pulse * (lng ? 4.5 : 2.5);
       float x1 = (float)(Math.Cos(ang) * 3.2), y1 = (float)(Math.Sin(ang) * 3.2);
       float x2 = (float)(Math.Cos(ang) * len), y2 = (float)(Math.Sin(ang) * len);
-      int al = (int)((lng ? 205 : 125) * (0.55 + 0.45 * pulse));
+      int al = Clamp255((int)((lng ? 205 : 125) * (0.55 + 0.45 * pulse) * rev));
       using (var p = new Pen(Color.FromArgb(al, lng ? cHot : cMain), lng ? 2.1f : 1.4f)) { p.StartCap = LineCap.Round; p.EndCap = LineCap.Round; g.DrawLine(p, x1, y1, x2, y2); }
     }
     g.Restore(st);
@@ -946,23 +1160,52 @@ class JarvisHudWF : Form {
       }
     }
 
-    // glow radial "emanando" (respira em raio e brilho; Fable = mais branco e intenso)
-    float gr = 13f + (float)(pulse * 4.5);
+    // DESCARGA ELETRICA: sob carga, um arco crepita entre o nucleo e o anel externo.
+    // Periodo encurta com a atividade (calmo em repouso -> tempestade a plena carga).
+    if (energy > 0.12) {
+      double dperiod = 3200.0 - 2100.0 * energy;            // ms entre descargas
+      long dph = NowMs() % (long)dperiod;
+      if (dph < 200) DrawDischarge(g, cx, cy, 1.0 - dph / 200.0);
+    }
+
+    // glow radial "emanando" (respira em raio e brilho; Fable = mais branco e intenso; sobe c/ carga)
+    float gr = 13f + (float)(pulse * 4.5) + (float)(3.0 * energy);
     using (var gpath = new GraphicsPath()) {
       gpath.AddEllipse(cx - gr, cy - gr, 2 * gr, 2 * gr);
       using (var pgb = new PathGradientBrush(gpath)) {
         pgb.CenterPoint = new PointF(cx, cy);
-        pgb.CenterColor = Color.FromArgb((int)(150 + 75 * pulse + 15 * heat), 255, (int)(240 + 8 * heat), (int)(205 + 23 * heat));
+        pgb.CenterColor = Color.FromArgb(Clamp255((int)(150 + 75 * pulse + 15 * heat + 30 * energy)), 255, (int)(240 + 8 * heat), (int)(205 + 23 * heat));
         pgb.SurroundColors = new Color[] { Color.FromArgb(0, HC(Amber, Ember)) };
         g.FillPath(pgb, gpath);
       }
     }
 
-    // nucleo incandescente + branco quente (Fable = maior, com miolo branco puro)
-    float pr = (float)(4.6 + 0.6 * heat) + (float)(pulse * (1.7 + 0.4 * heat));
+    // nucleo incandescente + branco quente (Fable = maior, com miolo branco puro; incha c/ carga)
+    float pr = (float)(4.6 + 0.6 * heat + 0.9 * energy) + (float)(pulse * (1.7 + 0.4 * heat));
     using (var b = new SolidBrush(cMain)) g.FillEllipse(b, cx - pr, cy - pr, 2 * pr, 2 * pr);
     using (var b = new SolidBrush(Lerp(Color.FromArgb(255, 255, 248, 232), Color.White, heat))) g.FillEllipse(b, cx - 2.2f, cy - 2.2f, 4.4f, 4.4f);
   }
+
+  // arco eletrico crepitante do nucleo ate o anel externo: polilinha jagged com halo,
+  // angulo/jitter pseudo-aleatorios (semente = tempo) e alfa decaindo. Dentro do atomRect.
+  void DrawDischarge(Graphics g, float cx, float cy, double k) {
+    long seed = NowMs() / 380;                               // muda a cada descarga
+    double a0 = (seed * 2.3999) % (2 * Math.PI);
+    int segs = 5; var pts = new PointF[segs + 1];
+    for (int i = 0; i <= segs; i++) {
+      double f = i / (double)segs;
+      double ang = a0 + Math.Sin(seed * 1.7 + i * 0.9) * 0.5;
+      double rad = 5 + 24 * f;
+      double jit = (i == 0 || i == segs) ? 0 : Math.Sin(seed * 3.1 + i * 2.7) * 5.0;
+      pts[i] = new PointF(cx + (float)(Math.Cos(ang) * rad + Math.Cos(ang + 1.57) * jit),
+                          cy + (float)(Math.Sin(ang) * rad + Math.Sin(ang + 1.57) * jit));
+    }
+    Color hotc = heat >= 0.5 ? MythPale : Color.FromArgb(255, 255, 244, 214);
+    using (var halo = new Pen(Color.FromArgb((int)(80 * k), heat >= 0.5 ? MythGold : AmberBright), 3.4f)) { halo.StartCap = LineCap.Round; halo.EndCap = LineCap.Round; halo.LineJoin = LineJoin.Round; g.DrawLines(halo, pts); }
+    using (var bolt = new Pen(Color.FromArgb((int)(230 * k), hotc), 1.4f)) { bolt.StartCap = LineCap.Round; bolt.EndCap = LineCap.Round; bolt.LineJoin = LineJoin.Round; g.DrawLines(bolt, pts); }
+  }
+
+  static int Clamp255(int v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
 
   // badge "FABLE 5" no cabecalho: estrela de 4 pontas desenhada (sem depender de glifo)
   // + texto ouro-branco, brilho respirando em passos de 1s (fora do atomRect -> pintado
@@ -1003,7 +1246,7 @@ class JarvisHudWF : Form {
   public void Seed() {
     title = "Claude Code";
     startTs = NowMs() - (1000L * 60 * 7) - (1000L * 23);   // 07:23 de operacao
-    status = "OPERANDO"; phase = 1.15; modelShort = "OPUS"; loadPeak = 0.86;
+    status = "OPERANDO"; phase = 1.15; spin = 41; modelShort = "OPUS"; loadPeak = 0.86;
     long now = NowMs();
     int[] off = { 1, 3, 4, 7, 9, 12, 15, 19, 24, 30, 38, 47, 58 };
     for (int i = 0; i < off.Length; i++) { actTs[(int)(actions % actTs.Length)] = now - off[i] * 1000L; actions++; }
@@ -1020,7 +1263,14 @@ class JarvisHudWF : Form {
   // ------- interacao -------
   protected override void OnMouseDown(MouseEventArgs e) {
     if (e.Button == MouseButtons.Left) {
+      if (morphing) return;                                  // durante o morph, ignora cliques
+      if (minimized) {
+        if (miniCloseRect.Contains(e.Location)) { try { File.WriteAllText(Path.Combine(dir, "closed"), "1"); } catch {} Close(); return; }
+        dragging = true; dragStart = e.Location;              // clique simples restaura (decidido no MouseUp)
+        base.OnMouseDown(e); return;
+      }
       if (closeRect.Contains(e.Location)) { try { File.WriteAllText(Path.Combine(dir, "closed"), "1"); } catch {} Close(); return; }
+      if (minRect.Contains(e.Location)) { BeginMorph(true); return; }   // minimizar
       dragging = true; dragStart = e.Location;
     }
     base.OnMouseDown(e);
@@ -1029,10 +1279,21 @@ class JarvisHudWF : Form {
     if (dragging) { Location = new Point(Location.X + e.X - dragStart.X, Location.Y + e.Y - dragStart.Y); movedDuringDrag = true; }
     base.OnMouseMove(e);
   }
-  protected override void OnMouseUp(MouseEventArgs e) { if (dragging) { dragging = false; if (movedDuringDrag) { userMoved = true; HudLayout.Release(pid); } movedDuringDrag = false; } base.OnMouseUp(e); }
+  protected override void OnMouseUp(MouseEventArgs e) {
+    if (dragging) {
+      dragging = false;
+      if (movedDuringDrag) { userMoved = true; HudLayout.Release(pid); }
+      else if (minimized && !morphing) { BeginMorph(false); }   // clique simples na mini -> restaura
+      movedDuringDrag = false;
+    }
+    base.OnMouseUp(e);
+  }
   protected override void OnFormClosed(FormClosedEventArgs e) {
     try { if (periodSet) { timeEndPeriod(1); periodSet = false; } } catch {}   // devolve a resolucao do timer
     try { if (bgBmp != null) { bgBmp.Dispose(); bgBmp = null; } } catch {}
+    try { if (miniBg != null) { miniBg.Dispose(); miniBg = null; } } catch {}
+    try { if (fullShot != null) { fullShot.Dispose(); fullShot = null; } } catch {}
+    try { if (miniShotBmp != null) { miniShotBmp.Dispose(); miniShotBmp = null; } } catch {}
     try { HudLayout.Release(pid); } catch {}
     try { if (mutex != null) mutex.ReleaseMutex(); } catch {}
     base.OnFormClosed(e);

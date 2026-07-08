@@ -30,6 +30,18 @@
   .stxt{color:var(--online);letter-spacing:.05em}
   .close{color:var(--faint);font-family:var(--mono);font-size:12px;cursor:pointer;-webkit-app-region:no-drag;padding:0 3px}
   .close:hover{color:var(--amber)}
+  .min{color:var(--faint);font-family:var(--mono);font-size:13px;font-weight:700;cursor:pointer;-webkit-app-region:no-drag;padding:0 3px;line-height:1}
+  .min:hover{color:var(--amber)}
+  /* MINI-CAPSULA: a telinha colapsa numa pilula reator no canto; clique restaura */
+  #minicap{position:absolute;inset:0;display:none;border-radius:27px;overflow:hidden;background:linear-gradient(60deg,var(--ink1),var(--ink2));border:1.3px solid rgba(201,168,119,.82);box-shadow:0 8px 26px rgba(0,0,0,.5);cursor:pointer;-webkit-app-region:drag}
+  #minicap.fable{background:linear-gradient(60deg,#26150A,#0F0603);border-color:rgba(255,122,60,.92)}
+  body.minimized #minicap{display:block}
+  body.minimized .hud{display:none}
+  #minicap canvas{position:absolute;left:6px;top:5px;width:44px;height:44px;-webkit-app-region:no-drag}
+  #minicap .mt1{position:absolute;left:56px;top:7px;right:22px;font-family:var(--mono);font-size:10.5px;font-weight:700;color:var(--amber);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #minicap .mt2{position:absolute;left:56px;top:26px;right:16px;font-family:var(--mono);font-size:9px;color:var(--online);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #minicap .mx{position:absolute;right:8px;top:4px;font-family:var(--mono);font-size:11px;color:var(--faint);-webkit-app-region:no-drag;cursor:pointer;padding:2px}
+  #minicap .mx:hover{color:var(--amber)}
   /* modo FABLE 5 (classe Mythos): badge ouro-branco cintilante + moldura elevada */
   #fbadge{display:none;margin-left:8px;vertical-align:2px;font-family:var(--mono);font-size:8px;font-weight:700;letter-spacing:.08em;color:#FFF4DC;border:1px solid rgba(255,217,138,.8);border-radius:3px;padding:1.5px 6px;background:linear-gradient(110deg,rgba(255,217,138,.10) 25%,rgba(255,244,220,.42) 50%,rgba(255,217,138,.10) 75%);background-size:220% 100%;animation:fshine 2.8s linear infinite;text-shadow:0 0 7px rgba(255,217,138,.75)}
   @keyframes fshine{0%{background-position:200% 0}100%{background-position:-120% 0}}
@@ -100,7 +112,7 @@
   <div class="drag"></div>
   <div class="head">
     <div class="brand">J.A.R.V.I.S.<span id="fbadge">✦ FABLE 5</span></div>
-    <div class="hstat"><span class="hago" id="hago"></span><span class="pill" id="pill"><span class="dot" id="dot"></span><span class="stxt" id="stxt">ONLINE</span></span><span class="close" id="close">×</span></div>
+    <div class="hstat"><span class="hago" id="hago"></span><span class="pill" id="pill"><span class="dot" id="dot"></span><span class="stxt" id="stxt">ONLINE</span></span><span class="min" id="min">–</span><span class="close" id="close">×</span></div>
   </div>
   <div class="sess" id="sess">// sessao</div>
   <div id="mtag"></div>
@@ -128,6 +140,12 @@
 </div>
 <div id="bdot"></div>
 <div id="bline"></div>
+<div id="minicap">
+  <canvas id="mreactor" width="88" height="88"></canvas>
+  <div class="mt1" id="mt1">J.A.R.V.I.S.</div>
+  <div class="mt2" id="mt2">ONLINE</div>
+  <div class="mx" id="mx">×</div>
+</div>
 <script>
 const fs = require('fs'), path = require('path');
 let ipcRenderer = null; try { ipcRenderer = require('electron').ipcRenderer; } catch (e) {}
@@ -146,6 +164,7 @@ let spark = new Array(16).fill(0), load = 0, taskDone = 0, taskTotal = 0;
 let loadPeak = 0;    // pico VU da carga: segura o maximo e decai (realismo de medidor)
 let modelId = '';    // id do modelo real da sessao (etiqueta OPUS/SONNET/...)
 let closing = false, bornMs = Date.now();
+let minimized = false;   // colapsado na mini-capsula reator
 let fable = false;   // sessao rodando o FABLE 5 (classe Mythos) -> visual especial
 // transicao CINEMATICA entre modos: heat 0=normal .. 1=FABLE (onda + recolorir tudo)
 let heat = 0, inTrans = false, transStart = 0, heatFrom = 0, heatTo = 0, modelInit = false;
@@ -269,16 +288,26 @@ function renderDOM() {
     }
     fc.appendChild(row);
   }
+  // mini-capsula (quando colapsado): titulo + status/tempo, paleta do modo
+  if (minimized) {
+    el('minicap').classList.toggle('fable', fable);
+    el('mt1').textContent = title || 'J.A.R.V.I.S.'; el('mt1').style.color = fable ? '#FFD98A' : 'var(--amber)';
+    el('mt2').textContent = ((fable && st === 'OPERANDO') ? 'PLENA CARGA' : st) + '  ' + elapsed();
+    el('mt2').style.color = st === 'OPERANDO' ? (fable ? '#FF7A3C' : 'var(--amber)') : st === 'ENCERRADO' ? 'var(--faint)' : 'var(--online)';
+  }
 }
 
 // ---- reator (canvas, animado) ----
 const rc = el('reactor'), rctx = rc.getContext('2d');
-let t0 = Date.now();
+let t0 = Date.now(), rspin = 0, rspinT = 0;
 function mixc(a, b, k) { return a.map((v, i) => Math.round(v + (b[i] - v) * k)).join(','); }
 function drawReactor() {
   const w = rc.width, h = rc.height, cx = w / 2, cy = h / 2, S = w / 80; // 2x DPR (canvas 160 p/ 80px)
   const phase = (Date.now() - t0) / 500;
-  const a = phase * 20 * Math.PI / 180, pulse = 0.5 + 0.5 * Math.sin(phase * 2.2);
+  // REATIVO: gira mais rapido e brilha mais forte com a atividade real (carga + APM)
+  const energy = Math.max(load, Math.min(1, apm / 45));
+  const nowr = Date.now(); if (!rspinT) rspinT = nowr; rspin += (nowr - rspinT) / 1000 * (16 + 46 * energy) * Math.PI / 180; rspinT = nowr;
+  const a = rspin, pulse = 0.5 + 0.5 * Math.sin(phase * (2.2 + 1.6 * energy)), rev = 0.72 + 0.5 * energy;
   // avanco da transicao de modo (heat desliza 0<->1; fora dela e constante)
   if (inTrans) {
     const t = (Date.now() - transStart) / TRANS_MS;
@@ -295,7 +324,7 @@ function drawReactor() {
     rctx.beginPath(); rctx.arc(0, 0, 30, 0, 7); rctx.fillStyle = 'rgba(255,122,60,' + ((0.13 + 0.12 * fl) * heat).toFixed(3) + ')'; rctx.fill();
   }
   // halo + aros
-  rctx.beginPath(); rctx.arc(0, 0, 24, 0, 7); rctx.fillStyle = 'rgba(' + HOT + ',' + (0.09 + 0.04 * heat).toFixed(3) + ')'; rctx.fill();
+  rctx.beginPath(); rctx.arc(0, 0, 24, 0, 7); rctx.fillStyle = 'rgba(' + HOT + ',' + (0.09 + 0.04 * heat + 0.07 * energy).toFixed(3) + ')'; rctx.fill();
   rctx.beginPath(); rctx.arc(0, 0, 30, 0, 7); rctx.strokeStyle = 'rgba(' + MAIN + ',.35)'; rctx.lineWidth = 1; rctx.stroke();
   rctx.beginPath(); rctx.arc(0, 0, 33, 0, 7); rctx.strokeStyle = 'rgba(201,168,119,.14)'; rctx.stroke();
   // ticks girando
@@ -307,7 +336,9 @@ function drawReactor() {
   // raios emanando + respirando (a contagem troca no meio da transicao, sob o flash)
   const RAYS = heat >= 0.5 ? 16 : 12, LENL = 16 + 2 * heat, LENS = 9.5 + 1.5 * heat;
   rctx.save(); rctx.rotate(a * 0.55); rctx.lineCap = 'round';
-  for (let i = 0; i < RAYS; i++) { const ang = i * 2 * Math.PI / RAYS, lng = i % 2 === 0, len = (lng ? LENL : LENS) + pulse * (lng ? 4.5 : 2.5), al = (lng ? .8 : .5) * (.55 + .45 * pulse); rctx.strokeStyle = 'rgba(' + (lng ? HOT : MAIN) + ',' + al.toFixed(2) + ')'; rctx.lineWidth = lng ? 2.1 : 1.4; rctx.beginPath(); rctx.moveTo(Math.cos(ang) * 3.2, Math.sin(ang) * 3.2); rctx.lineTo(Math.cos(ang) * len, Math.sin(ang) * len); rctx.stroke(); } rctx.restore();
+  for (let i = 0; i < RAYS; i++) { const ang = i * 2 * Math.PI / RAYS, lng = i % 2 === 0, len = (lng ? LENL : LENS) + pulse * (lng ? 4.5 : 2.5), al = Math.min(1, (lng ? .8 : .5) * (.55 + .45 * pulse) * rev); rctx.strokeStyle = 'rgba(' + (lng ? HOT : MAIN) + ',' + al.toFixed(2) + ')'; rctx.lineWidth = lng ? 2.1 : 1.4; rctx.beginPath(); rctx.moveTo(Math.cos(ang) * 3.2, Math.sin(ang) * 3.2); rctx.lineTo(Math.cos(ang) * len, Math.sin(ang) * len); rctx.stroke(); } rctx.restore();
+  // DESCARGA eletrica sob carga (paridade com o nativo)
+  if (energy > 0.12) { const dper = 3200 - 2100 * energy, dph = Date.now() % dper; if (dph < 200) { const dk = 1 - dph / 200, seed = Math.floor(Date.now() / 380), a0 = (seed * 2.3999) % (2 * Math.PI); rctx.save(); rctx.lineCap = 'round'; rctx.lineJoin = 'round'; const pts = []; for (let i = 0; i <= 5; i++) { const f = i / 5, ang = a0 + Math.sin(seed * 1.7 + i * 0.9) * 0.5, rad = 5 + 24 * f, jit = (i === 0 || i === 5) ? 0 : Math.sin(seed * 3.1 + i * 2.7) * 5; pts.push([Math.cos(ang) * rad + Math.cos(ang + 1.57) * jit, Math.sin(ang) * rad + Math.sin(ang + 1.57) * jit]); } rctx.strokeStyle = 'rgba(' + (heat >= 0.5 ? '255,244,220' : '255,224,150') + ',' + (0.35 * dk).toFixed(2) + ')'; rctx.lineWidth = 3.4; rctx.beginPath(); rctx.moveTo(pts[0][0], pts[0][1]); for (const q of pts) rctx.lineTo(q[0], q[1]); rctx.stroke(); rctx.strokeStyle = 'rgba(255,250,235,' + (0.9 * dk).toFixed(2) + ')'; rctx.lineWidth = 1.3; rctx.beginPath(); rctx.moveTo(pts[0][0], pts[0][1]); for (const q of pts) rctx.lineTo(q[0], q[1]); rctx.stroke(); rctx.restore(); } }
   // satelites Mythos: nascem/somem em fade junto com o calor
   if (heat > 0.02) {
     rctx.strokeStyle = 'rgba(255,217,138,' + (0.10 * heat).toFixed(3) + ')'; rctx.lineWidth = 1;
@@ -319,11 +350,26 @@ function drawReactor() {
     }
   }
   // glow radial + core (interpolados pelo heat)
-  const gr = 13 + pulse * 4.5, g = rctx.createRadialGradient(0, 0, 0, 0, 0, gr); g.addColorStop(0, 'rgba(' + mixc([255,240,205],[255,248,228],heat) + ',' + (0.6 + 0.3 * pulse).toFixed(2) + ')'); g.addColorStop(1, 'rgba(' + MAIN + ',0)'); rctx.fillStyle = g; rctx.beginPath(); rctx.arc(0, 0, gr, 0, 7); rctx.fill();
-  const pr = (4.6 + 0.6 * heat) + pulse * (1.7 + 0.4 * heat); rctx.fillStyle = 'rgb(' + MAIN + ')'; rctx.beginPath(); rctx.arc(0, 0, pr, 0, 7); rctx.fill();
+  const gr = 13 + pulse * 4.5 + 3 * energy, g = rctx.createRadialGradient(0, 0, 0, 0, 0, gr); g.addColorStop(0, 'rgba(' + mixc([255,240,205],[255,248,228],heat) + ',' + Math.min(1, 0.6 + 0.3 * pulse + 0.15 * energy).toFixed(2) + ')'); g.addColorStop(1, 'rgba(' + MAIN + ',0)'); rctx.fillStyle = g; rctx.beginPath(); rctx.arc(0, 0, gr, 0, 7); rctx.fill();
+  const pr = (4.6 + 0.6 * heat + 0.9 * energy) + pulse * (1.7 + 0.4 * heat); rctx.fillStyle = 'rgb(' + MAIN + ')'; rctx.beginPath(); rctx.arc(0, 0, pr, 0, 7); rctx.fill();
   rctx.fillStyle = 'rgb(' + mixc([255,248,232],[255,255,255],heat) + ')'; rctx.beginPath(); rctx.arc(0, 0, 2.2, 0, 7); rctx.fill();
   rctx.restore();
+  if (minimized) drawMiniReactor(a, pulse, energy, MAIN, HOT);
   if (!closing || shutP < 0.42) requestAnimationFrame(drawReactor);
+}
+
+// mini reator da capsula colapsada (versao enxuta; le bem em ~44px)
+const mrc = el('mreactor'), mrctx = mrc.getContext('2d');
+function drawMiniReactor(a, pulse, energy, MAIN, HOT) {
+  const w = mrc.width, S = w / 44; mrctx.clearRect(0, 0, w, w); mrctx.save(); mrctx.scale(S, S); mrctx.translate(22, 22);
+  mrctx.beginPath(); mrctx.arc(0, 0, 16, 0, 7); mrctx.fillStyle = 'rgba(' + HOT + ',' + Math.min(1, 0.14 + 0.1 * pulse + 0.1 * energy).toFixed(2) + ')'; mrctx.fill();
+  mrctx.beginPath(); mrctx.arc(0, 0, 18, 0, 7); mrctx.strokeStyle = 'rgba(' + MAIN + ',.35)'; mrctx.lineWidth = 1; mrctx.stroke();
+  mrctx.save(); mrctx.rotate(a); mrctx.strokeStyle = 'rgba(' + MAIN + ',.7)'; mrctx.lineWidth = 1.6; for (let i = 0; i < 8; i++) { const r = i * Math.PI / 4; mrctx.beginPath(); mrctx.moveTo(Math.cos(r) * 14, Math.sin(r) * 14); mrctx.lineTo(Math.cos(r) * 17.5, Math.sin(r) * 17.5); mrctx.stroke(); } mrctx.restore();
+  mrctx.save(); mrctx.rotate(-a * 1.4); mrctx.strokeStyle = 'rgba(' + HOT + ',.85)'; mrctx.lineWidth = 1.8; mrctx.lineCap = 'round'; mrctx.beginPath(); mrctx.arc(0, 0, 12, 0.35, 2.6); mrctx.stroke(); mrctx.restore();
+  mrctx.save(); mrctx.rotate(a * 0.55); mrctx.lineCap = 'round'; for (let i = 0; i < 8; i++) { const ang = i * Math.PI / 4, len = 8 + pulse * 2.5; mrctx.strokeStyle = 'rgba(' + (i % 2 ? MAIN : HOT) + ',' + Math.min(1, 0.6 + 0.4 * pulse).toFixed(2) + ')'; mrctx.lineWidth = 1.3; mrctx.beginPath(); mrctx.moveTo(Math.cos(ang) * 2.5, Math.sin(ang) * 2.5); mrctx.lineTo(Math.cos(ang) * len, Math.sin(ang) * len); mrctx.stroke(); } mrctx.restore();
+  const gr = 6 + pulse * 2.5, g = mrctx.createRadialGradient(0, 0, 0, 0, 0, gr); g.addColorStop(0, 'rgba(255,244,214,' + Math.min(1, 0.65 + 0.3 * pulse).toFixed(2) + ')'); g.addColorStop(1, 'rgba(' + MAIN + ',0)'); mrctx.fillStyle = g; mrctx.beginPath(); mrctx.arc(0, 0, gr, 0, 7); mrctx.fill();
+  const pr = 2.6 + 0.7 * energy + pulse * 1.2; mrctx.fillStyle = 'rgb(' + MAIN + ')'; mrctx.beginPath(); mrctx.arc(0, 0, pr, 0, 7); mrctx.fill();
+  mrctx.restore();
 }
 
 // ---- FX da transicao de modo: onda de choque + flash + letreiro (canvas por cima) ----
@@ -443,9 +489,15 @@ function seed() {
   lastFeedTs = now - 1100; recompute();
 }
 
+// ---- minimizar / restaurar ----
+el('min').addEventListener('click', (e) => { e.stopPropagation(); minimized = true; document.body.classList.add('minimized'); try { ipcRenderer && ipcRenderer.send('hud-min', true); } catch (er) {} });
+el('minicap').addEventListener('click', () => { minimized = false; document.body.classList.remove('minimized'); try { ipcRenderer && ipcRenderer.send('hud-min', false); } catch (er) {} });
+el('mx').addEventListener('click', (e) => { e.stopPropagation(); try { fs.writeFileSync(P('closed'), '1'); } catch (er) {} try { ipcRenderer && ipcRenderer.send('hud-close'); } catch (er) {} });
+
 // ---- boot ----
 el('close').addEventListener('click', () => { try { fs.writeFileSync(P('closed'), '1'); } catch (e) {} try { ipcRenderer && ipcRenderer.send('hud-close'); } catch (e) {} });
 drawReactor();
+if (Q.get('mini') === '1') { minimized = true; document.body.classList.add('minimized'); }   // QA da mini-capsula
 if (MODE === 'shot' || MODE === 'shotshut' || MODE === 'shotboot') {
   seed(); renderDOM();
   if (MODE === 'shotshut') { shutdownFrame(SHOTP); }

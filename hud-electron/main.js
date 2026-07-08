@@ -7,13 +7,14 @@ const { app, BrowserWindow, ipcMain, screen } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
-const W = 380, H = 300, HB_STALE = 6000;
+const W = 380, H = 300, MINI_W = 182, MINI_H = 54, HB_STALE = 6000;
 const ROOT = path.join(__dirname, '..', 'hud-sessions');
 
 // argumentos (depois do caminho do app)
 const argv = process.argv.slice(app.isPackaged ? 1 : 2);
-let mode = 'run', sid = 'global', shotOut = null, shotP = 0.3, shotFable = false;
+let mode = 'run', sid = 'global', shotOut = null, shotP = 0.3, shotFable = false, shotMini = false;
 if (argv[0] === '--shot') { mode = 'shot'; shotOut = argv[1]; shotFable = argv[2] === 'fable'; }
+else if (argv[0] === '--shot-mini') { mode = 'shot'; shotOut = argv[1]; shotMini = true; shotFable = argv[2] === 'fable'; }
 else if (argv[0] === '--shot-shut') { mode = 'shotshut'; shotOut = argv[1]; shotP = parseFloat(argv[2] || '0.3'); }
 else if (argv[0] === '--shot-boot') { mode = 'shotboot'; shotOut = argv[1]; shotP = parseFloat(argv[2] || '0.7'); }
 else if (argv[0]) { sid = argv[0]; }
@@ -30,7 +31,7 @@ app.whenReady().then(() => {
   if (mode === 'run' && hbFresh()) { app.quit(); return; }   // ja ha uma telinha viva p/ essa sessao
 
   const win = new BrowserWindow({
-    width: W, height: H,
+    width: shotMini ? MINI_W : W, height: shotMini ? MINI_H : H,
     frame: false, transparent: true, resizable: false, hasShadow: false, movable: true,
     alwaysOnTop: true, skipTaskbar: true, focusable: false, show: false, fullscreenable: false,
     webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false }
@@ -39,7 +40,7 @@ app.whenReady().then(() => {
   try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch (e) {}
 
   const q = 'sid=' + encodeURIComponent(cleanSid) + '&dir=' + encodeURIComponent(sdir) +
-            '&mode=' + mode + '&p=' + shotP + (shotFable ? '&fable=1' : '');
+            '&mode=' + mode + '&p=' + shotP + (shotFable ? '&fable=1' : '') + (shotMini ? '&mini=1' : '');
   win.loadFile(path.join(__dirname, 'index.html'), { search: q });
 
   if (mode === 'run') {
@@ -47,6 +48,14 @@ app.whenReady().then(() => {
     win.once('ready-to-show', () => { try { win.showInactive(); } catch (e) { win.show(); } });
     ipcMain.on('hud-close', () => { try { win.close(); } catch (e) {} });
     ipcMain.on('hud-drag', (e, dx, dy) => { try { const p = win.getPosition(); win.setPosition(p[0] + dx, p[1] + dy); } catch (er) {} });
+    // minimizar/restaurar: redimensiona a janela ancorando o canto superior-DIREITO
+    ipcMain.on('hud-min', (e, mini) => {
+      try {
+        const b = win.getBounds(), right = b.x + b.width, top = b.y;
+        if (mini) win.setBounds({ x: right - MINI_W, y: top, width: MINI_W, height: MINI_H });
+        else win.setBounds({ x: right - W, y: top, width: W, height: H });
+      } catch (er) {}
+    });
   } else {
     win.webContents.once('did-finish-load', async () => {
       await new Promise(r => setTimeout(r, mode === 'shotshut' ? 300 : 550));
