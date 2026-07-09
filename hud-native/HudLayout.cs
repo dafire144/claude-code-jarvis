@@ -123,7 +123,7 @@ static class HudLayout {
         if (!long.TryParse(p[0], out oclaim) || !int.TryParse(p[1], out oh) || !long.TryParse(p[2], out ohb)) continue;
         if (now - ohb > ORPHAN) { try { File.Delete(f); } catch {} continue; }
         if (now - ohb > STALE) continue;                       // morta: nao ocupa espaco
-        int ow = FULLW; if (p.Length >= 6) int.TryParse(p[5], out ow);   // largura (slot antigo -> assume cheia)
+        int ow = FULLW; if (p.Length >= 6) { int tw; if (int.TryParse(p[5], out tw)) ow = tw; }   // largura (slot antigo/malformado -> assume cheia; TryParse zeraria ow)
         Win o; o.claim = oclaim; o.h = oh; o.pid = opid; o.w = ow; list.Add(o);
       }
     } catch {}

@@ -619,16 +619,24 @@ class JarvisHudWF : Form {
   void BeginMorph(bool toMini) {
     if (morphing) return;
     if (inTrans) { heat = heatTo; inTrans = false; }                      // completa transicao de modo pendente (senao minimizar a deixa presa na pele errada, achado #3)
+    bool wasDragged = userMoved;                                          // ANTES de zerar: p/ decidir a pegada reservada
     morphing = true; morphDir = toMini ? 1 : -1; morphStart = NowMs();
     morphStartRect = Bounds;                                              // de onde a janela parte (coord de tela)
     if (toMini) userMoved = false;                                        // minimizar rejunta ao auto-layout (estaciona no dock)
-    // RESERVA a pegada CHEIA no dock durante TODO o morph -> as vizinhas nunca invadem:
-    // expandir cresce em espaco que elas ja liberaram; minimizar so as deixa fechar no EndMorph.
-    Point anchor;
-    if (!userMoved && !dragging) anchor = HudLayout.Place(pid, bornMs, W, H, false, false);   // escreve slot CHEIO + devolve a ancora do dock
-    else anchor = new Point(Location.X + Width - W, Location.Y);          // arrastada (so no expand): cresce no lugar, canto dir fixo
-    morphDestRect = toMini ? new Rectangle(anchor.X + W - MINI_W, anchor.Y, MINI_W, MINI_H)   // mini encostada na direita, mesmo topo
-                           : new Rectangle(anchor.X, anchor.Y, W, H);
+    if (toMini && wasDragged) {
+      // minimizar uma janela ARRASTADA: entra JA como MINI no dock (reserva mini, sem inchar a
+      // pegada cheia que seria desfeita 300ms depois -> sem solavanco duplo nas vizinhas, achado #7)
+      Point p = HudLayout.Place(pid, bornMs, MINI_W, MINI_H, false, true);
+      morphDestRect = new Rectangle(p.X, p.Y, MINI_W, MINI_H);
+    } else {
+      // RESERVA a pegada CHEIA no dock durante TODO o morph -> as vizinhas nunca invadem:
+      // expandir cresce em espaco que elas ja liberaram; minimizar so as deixa fechar no EndMorph.
+      Point anchor;
+      if (!userMoved && !dragging) anchor = HudLayout.Place(pid, bornMs, W, H, false, false);   // escreve slot CHEIO + devolve a ancora do dock
+      else anchor = new Point(Location.X + Width - W, Location.Y);        // arrastada no EXPAND: cresce no lugar, canto dir fixo
+      morphDestRect = toMini ? new Rectangle(anchor.X + W - MINI_W, anchor.Y, MINI_W, MINI_H)   // mini encostada na direita, mesmo topo
+                             : new Rectangle(anchor.X, anchor.Y, W, H);
+    }
     try { fullShot = new Bitmap(W, H); using (var g = Graphics.FromImage(fullShot)) Render(g); } catch { fullShot = null; }
     try { miniShotBmp = new Bitmap(MINI_W, MINI_H); using (var g = Graphics.FromImage(miniShotBmp)) RenderMini(g); } catch { miniShotBmp = null; }
     if (animTimer != null) animTimer.Interval = 8;                        // morph liso ~120fps
