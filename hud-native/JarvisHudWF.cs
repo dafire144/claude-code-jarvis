@@ -351,7 +351,10 @@ class JarvisHudWF : Form {
   // telinha minimiza/expande/fecha, as vizinhas reencaixam em ate ~60ms -> transiente minimo.
   void PlaceTick() {
     if (userMoved || closing) return;                          // fora do fluxo / fechando: nada
-    if (dragging || morphing || booting) { HudLayout.Touch(pid); return; }   // em flux mas sem recalcular: so renova o hb (nao morre pra vizinha)
+    // SO arraste e morph congelam a posicao (o usuario/o morph a controlam) -> ai so renova o hb.
+    // Durante o BOOT a janela DEVE reflowar normal: a ignicao so pinta, nao dona a posicao; congela-la
+    // deixava uma vizinha expandir POR CIMA dela por ate ~1,4s (regressao pega na re-auditoria).
+    if (dragging || morphing) { HudLayout.Touch(pid); return; }
     var np = HudLayout.Place(pid, bornMs, CurW(), CurH(), false, minimized);
     if (np != Location) Location = np;
   }
@@ -1334,7 +1337,7 @@ class JarvisHudWF : Form {
   // ------- interacao -------
   protected override void OnMouseDown(MouseEventArgs e) {
     if (e.Button == MouseButtons.Left) {
-      if (morphing) return;                                  // durante o morph, ignora cliques
+      if (morphing || booting || closing) return;            // durante morph/ignicao/desligamento, ignora cliques (senao o morph inicia mas fica congelado sob o boot, e sobra slot orfao no shutdown)
       if (minimized) {
         if (miniCloseRect.Contains(e.Location)) { try { File.WriteAllText(Path.Combine(dir, "closed"), "1"); } catch {} Close(); return; }
         dragging = true; dragStart = e.Location;              // clique simples restaura (decidido no MouseUp)

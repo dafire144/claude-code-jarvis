@@ -117,12 +117,18 @@ function liveWins(selfW, selfH) {
   } catch (e) {}
   return wins;
 }
-// escrita ATOMICA do slot (tmp + rename): leitor concorrente nunca ve conteudo parcial (torn read)
+// escrita ATOMICA do slot (tmp + rename): leitor concorrente nunca ve conteudo parcial (torn read).
+// Devolve SUCESSO (o place so avanca o bookkeeping se gravou). Em falha RETENTA o rename atomico
+// (nao cai pra writeFileSync direto, que reintroduziria o torn-read).
 let lastBody = null, lastWriteMs = 0;
 function writeSlotAtomic(content) {
-  const dst = path.join(SLOTS, myPid + '.slot'), tmp = dst + '.tmp';
-  try { fs.writeFileSync(tmp, content); fs.renameSync(tmp, dst); }
-  catch (e) { try { fs.writeFileSync(dst, content); } catch (e2) {} }   // fallback nao-atomico
+  const dst = path.join(SLOTS, myPid + '.slot');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const tmp = dst + (attempt === 0 ? '.tmp' : '.tmp2');
+    try { fs.writeFileSync(tmp, content); fs.renameSync(tmp, dst); return true; }
+    catch (e) { try { fs.unlinkSync(tmp); } catch (e2) {} }
+  }
+  return false;
 }
 function place(mini) {
   try { fs.mkdirSync(SLOTS, { recursive: true }); } catch (e) {}
@@ -134,8 +140,7 @@ function place(mini) {
   const pos = map[myPid] || { x: Math.round(area.x + area.width - w - dock.margin), y: Math.round(area.y + dock.top) };
   const body = bornMs + '|' + h + '|' + pos.x + '|' + pos.y + '|' + w + '|' + (mini ? '1' : '0');
   if (body !== lastBody || now - lastWriteMs >= SLOT_STALE / 2) {   // so reescreve em mudanca de posicao ou hb envelhecido -> disco leve
-    writeSlotAtomic(bornMs + '|' + h + '|' + now + '|' + pos.x + '|' + pos.y + '|' + w + '|' + (mini ? '1' : '0'));
-    lastBody = body; lastWriteMs = now;
+    if (writeSlotAtomic(bornMs + '|' + h + '|' + now + '|' + pos.x + '|' + pos.y + '|' + w + '|' + (mini ? '1' : '0'))) { lastBody = body; lastWriteMs = now; }
   }
   return { x: pos.x, y: pos.y, w: w, h: h };
 }

@@ -153,8 +153,7 @@ static class HudLayout {
       // nao roda a cada tick e o disco descansa (o poll rapido fica quase todo em leitura barata).
       string body = claim + "|" + h + "|" + mine.X + "|" + mine.Y + "|" + w + "|" + (mini ? "1" : "0");
       if (body != lastBody || now - lastWriteMs >= STALE / 2) {
-        WriteSlot(me, claim + "|" + h + "|" + now + "|" + mine.X + "|" + mine.Y + "|" + w + "|" + (mini ? "1" : "0"));
-        lastBody = body; lastWriteMs = now;
+        if (WriteSlot(me, claim + "|" + h + "|" + now + "|" + mine.X + "|" + mine.Y + "|" + w + "|" + (mini ? "1" : "0"))) { lastBody = body; lastWriteMs = now; }
       }
     }
     return mine;
@@ -169,20 +168,24 @@ static class HudLayout {
     if (now - lastWriteMs < STALE / 2) return;
     string[] p = lastBody.Split('|');   // claim|h|x|y|w|mini
     if (p.Length < 6) return;
-    WriteSlot(Path.Combine(Dir(), pid + ".slot"), p[0] + "|" + p[1] + "|" + now + "|" + p[2] + "|" + p[3] + "|" + p[4] + "|" + p[5]);
-    lastWriteMs = now;
+    if (WriteSlot(Path.Combine(Dir(), pid + ".slot"), p[0] + "|" + p[1] + "|" + now + "|" + p[2] + "|" + p[3] + "|" + p[4] + "|" + p[5])) lastWriteMs = now;
   }
 
   // escrita ATOMICA do slot (tmp + rename): um leitor concorrente nunca ve conteudo parcial/vazio
   // (evita o "torn read" que fazia a janela sumir do arranjo de 1 tick e piscar sobreposicao).
-  static void WriteSlot(string path, string content) {
-    try {
-      string tmp = path + ".tmp";
-      File.WriteAllText(tmp, content);
-      if (File.Exists(path)) File.Replace(tmp, path, null); else File.Move(tmp, path);   // rename atomico no NTFS
-    } catch {
-      try { File.WriteAllText(path, content); } catch {}   // fallback: melhor um write nao-atomico do que nenhum
+  // Devolve SUCESSO -> o chamador so avanca o bookkeeping se gravou de verdade (falha != sucesso).
+  // Em falha (ex: sharing violation) NAO cai pra WriteAllText (reintroduziria torn-read): retenta o
+  // rename atomico; persistindo, prefere manter o slot antigo (valido) a escrever parcial.
+  static bool WriteSlot(string path, string content) {
+    for (int attempt = 0; attempt < 2; attempt++) {
+      string tmp = path + (attempt == 0 ? ".tmp" : ".tmp2");
+      try {
+        File.WriteAllText(tmp, content);
+        if (File.Exists(path)) File.Replace(tmp, path, null); else File.Move(tmp, path);   // rename atomico no NTFS
+        return true;
+      } catch { try { if (File.Exists(tmp)) File.Delete(tmp); } catch {} }
     }
+    return false;
   }
 
   public static void Release(int pid) {
@@ -226,6 +229,11 @@ static class HudLayout {
     scenarios.Add(new int[] { 1, 1, 1, 1, 1, 1, 1, 1 });        // muitas cheias -> forca colunas (over-cap em tela pequena)
     scenarios.Add(new int[] { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }); // 20 minis
     scenarios.Add(new int[] { 2, 2, 2, 2, 2, 2, 2, 2 });        // varias casas de festa
+    // ALTO N -> over-capacity PROFUNDO ate na tela grande: prova que a escada mantem os cantos
+    // superior-direito distintos mesmo com muitas janelas (antes o teste so ia ate 8).
+    { int[] a = new int[18]; for (int k = 0; k < 18; k++) a[k] = 1; scenarios.Add(a); }   // 18 cheias
+    { int[] a = new int[24]; for (int k = 0; k < 24; k++) a[k] = 1; scenarios.Add(a); }   // 24 cheias
+    { int[] a = new int[20]; for (int k = 0; k < 20; k++) a[k] = 2; scenarios.Add(a); }   // 20 fanouts
     int pitch = FULLW + COLGAP;
     for (int si = 0; si < screens.Length; si++) {
       Rectangle wa = screens[si];
