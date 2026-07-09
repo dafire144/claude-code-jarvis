@@ -119,8 +119,15 @@ class FanoutHud : Form {
     try { timeBeginPeriod(1); periodSet = true; } catch {}
 
     pid = System.Diagnostics.Process.GetCurrentProcess().Id;
-    Location = HudLayout.Place(pid, bornMs, W, H, false, false);
     ReadMission();
+    if (HudLayout.WantStartMinimized()) {                   // config compartilhada: a fan-out tambem nasce mini-capsula no dock
+      minimized = true;
+      ClientSize = new Size(MINI_W, MINI_H);
+      try { using (var gpm = RoundedPath(0, 0, MINI_W, MINI_H, RegionRad(MINI_H))) Region = new Region(gpm); } catch {}
+      Location = HudLayout.Place(pid, bornMs, MINI_W, MINI_H, false, true);
+    } else {
+      Location = HudLayout.Place(pid, bornMs, W, H, false, false);
+    }
 
     dataTimer = new WinTimer(); dataTimer.Interval = 1000;
     dataTimer.Tick += delegate { DataTick(); };

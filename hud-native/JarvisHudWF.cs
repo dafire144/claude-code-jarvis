@@ -249,7 +249,7 @@ class JarvisHudWF : Form {
     try { timeBeginPeriod(1); periodSet = true; } catch {}
 
     pid = System.Diagnostics.Process.GetCurrentProcess().Id;
-    if (WantStartMinimized(exeDir)) {                       // config: abrir ja como mini-capsula estacionada no dock
+    if (HudLayout.WantStartMinimized()) {                   // config: abrir ja como mini-capsula estacionada no dock (compartilhada com a fan-out)
       minimized = true;
       ClientSize = new Size(MINI_W, MINI_H);
       try { using (var gpm = RoundedPath(0, 0, MINI_W, MINI_H, RegionRad(MINI_H))) Region = new Region(gpm); } catch {}
@@ -307,20 +307,6 @@ class JarvisHudWF : Form {
     Invalidate();
   }
 
-  // Config "abrir minimizada": env JARVIS_HUD_START_MINIMIZED (1/true/on/yes) OU o arquivo-flag
-  // local <exeDir>\start-minimized.flag (nao versionado). Env explicito (0/1) vence o flag.
-  static bool WantStartMinimized(string exeDir) {
-    try {
-      string v = Environment.GetEnvironmentVariable("JARVIS_HUD_START_MINIMIZED");
-      if (v != null) {
-        v = v.Trim().ToLowerInvariant();
-        if (v == "1" || v == "true" || v == "yes" || v == "on") return true;
-        if (v == "0" || v == "false" || v == "no" || v == "off") return false;
-      }
-    } catch {}
-    try { if (File.Exists(Path.Combine(exeDir, "start-minimized.flag"))) return true; } catch {}
-    return false;
-  }
 
   // IGNICAO: espelho do desligamento, em tom QUENTE. Congela o 1o frame vivo e o revela
   // em 4 atos (fisga de luz -> linha CRT -> abertura vertical -> aquecimento + flare).

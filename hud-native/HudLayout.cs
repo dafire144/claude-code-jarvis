@@ -192,6 +192,25 @@ static class HudLayout {
     try { string f = Path.Combine(Dir(), pid + ".slot"); if (File.Exists(f)) File.Delete(f); } catch {}
   }
 
+  // Config "abrir minimizada" (compartilhada por TODAS as telinhas: sessao e fan-out): env
+  // JARVIS_HUD_START_MINIMIZED (1/true/on/yes) OU o arquivo-flag <exeDir>\start-minimized.flag
+  // (nao versionado). Env explicito (0/1) vence o flag. Ligada => a janela nasce mini no dock.
+  public static bool WantStartMinimized() {
+    try {
+      string v = Environment.GetEnvironmentVariable("JARVIS_HUD_START_MINIMIZED");
+      if (v != null) {
+        v = v.Trim().ToLowerInvariant();
+        if (v == "1" || v == "true" || v == "yes" || v == "on") return true;
+        if (v == "0" || v == "false" || v == "no" || v == "off") return false;
+      }
+    } catch {}
+    try {
+      string exeDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+      if (File.Exists(Path.Combine(exeDir, "start-minimized.flag"))) return true;
+    } catch {}
+    return false;
+  }
+
   // ---- AUTO-TESTE do invariante "zero sobreposicao / nada fora da tela" (jarvis-hud-wf.exe --layout-test) ----
   // Enumera cenarios (minis 182x54, cheias 380x300, casa-de-festas 342x190) em varias combinacoes
   // e telas, empacota com Pack e checa: nenhum par de janelas se sobrepoe e nenhuma sai da area util.
