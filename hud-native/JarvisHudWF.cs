@@ -81,7 +81,7 @@ class JarvisHudWF : Form {
   // Mesmo processo, dois estados (cheio / mini); o morph faz a implosao/expansao cinematica.
   bool minimized = false, morphing = false; long morphStart = 0; int morphDir = 0;
   const int MORPH_MS = 300, MINI_W = 182, MINI_H = 54;
-  int morphAnchorRight = 0, morphAnchorTop = 0;
+  Rectangle morphStartRect, morphDestRect;   // sanfona: a janela voa de start->dest (reservando a pegada cheia)
   Bitmap fullShot = null, miniShotBmp = null, miniBg = null; bool miniBgDirty = true;
   static Rectangle minRect = new Rectangle(W - 45, 8, 16, 18);              // botao minimizar (cheio)
   static Rectangle miniCloseRect = new Rectangle(MINI_W - 16, 5, 11, 11);   // fechar (mini)
@@ -133,6 +133,13 @@ class JarvisHudWF : Form {
 
   [STAThread]
   static void Main(string[] args) {
+    if (args.Length >= 1 && args[0] == "--layout-test") {   // auto-teste do dock: 0 = zero sobreposicao
+      var sb = new StringBuilder();
+      int fails = HudLayout.SelfTest(sb);
+      string outp = args.Length >= 2 ? args[1] : Path.Combine(Path.GetTempPath(), "jarvis-layout-test.txt");
+      try { File.WriteAllText(outp, sb.ToString()); } catch {}
+      Environment.Exit(fails); return;
+    }
     if (args.Length >= 2 && args[0] == "--shot") { Shot(args[1], args.Length > 2 && args[2] == "fable"); return; }
     if (args.Length >= 2 && args[0] == "--shot-mini") { ShotMini(args[1], args.Length > 2 && args[2] == "fable"); return; }
     if (args.Length >= 3 && args[0] == "--shot-shut") { ShotShut(args[1], double.Parse(args[2], CultureInfo.InvariantCulture)); return; }
@@ -254,7 +261,7 @@ class JarvisHudWF : Form {
     dataTimer.Tick += delegate { DataTick(); };
     dataTimer.Start();
 
-    layoutTimer = new WinTimer(); layoutTimer.Interval = 250;   // recompacta o dock 4x/s: a vizinha reencaixa quase na hora ao minimizar/expandir/fechar (sem overlap)
+    layoutTimer = new WinTimer(); layoutTimer.Interval = 150;   // recompacta o dock ~7x/s: a vizinha reencaixa quase na hora ao minimizar/expandir/fechar (sem overlap)
     layoutTimer.Tick += delegate { PlaceTick(); };
     layoutTimer.Start();
 
@@ -606,23 +613,34 @@ class JarvisHudWF : Form {
 
   void BeginMorph(bool toMini) {
     if (morphing) return;
-    if (toMini) userMoved = false;                                       // minimizar rejunta ao auto-layout: a capsula estaciona no dock
     morphing = true; morphDir = toMini ? 1 : -1; morphStart = NowMs();
-    morphAnchorRight = Location.X + Width; morphAnchorTop = Location.Y;   // ancora o canto superior-DIREITO
+    morphStartRect = Bounds;                                              // de onde a janela parte (coord de tela)
+    if (toMini) userMoved = false;                                        // minimizar rejunta ao auto-layout (estaciona no dock)
+    // RESERVA a pegada CHEIA no dock durante TODO o morph -> as vizinhas nunca invadem:
+    // expandir cresce em espaco que elas ja liberaram; minimizar so as deixa fechar no EndMorph.
+    Point anchor;
+    if (!userMoved && !dragging) anchor = HudLayout.Place(pid, bornMs, W, H, false, false);   // escreve slot CHEIO + devolve a ancora do dock
+    else anchor = new Point(Location.X + Width - W, Location.Y);          // arrastada (so no expand): cresce no lugar, canto dir fixo
+    morphDestRect = toMini ? new Rectangle(anchor.X + W - MINI_W, anchor.Y, MINI_W, MINI_H)   // mini encostada na direita, mesmo topo
+                           : new Rectangle(anchor.X, anchor.Y, W, H);
     try { fullShot = new Bitmap(W, H); using (var g = Graphics.FromImage(fullShot)) Render(g); } catch { fullShot = null; }
     try { miniShotBmp = new Bitmap(MINI_W, MINI_H); using (var g = Graphics.FromImage(miniShotBmp)) RenderMini(g); } catch { miniShotBmp = null; }
     if (animTimer != null) animTimer.Interval = 8;                        // morph liso ~120fps
   }
   void ApplyMorphBounds(double t) {
-    double p = morphDir == 1 ? SmoothStep(t) : SmoothStep(1 - t);         // p: 0=cheio .. 1=mini
-    int w = (int)(W + (MINI_W - W) * p), h = (int)(H + (MINI_H - H) * p);
-    try { SetBounds(morphAnchorRight - w, morphAnchorTop, w, h); using (var gp = RoundedPath(0, 0, w, h, RegionRad(h))) Region = new Region(gp); } catch {}
+    double e = SmoothStep(t);                                             // 0=inicio (start) .. 1=fim (dest)
+    int x = (int)Math.Round(morphStartRect.X + (morphDestRect.X - morphStartRect.X) * e);
+    int y = (int)Math.Round(morphStartRect.Y + (morphDestRect.Y - morphStartRect.Y) * e);
+    int w = (int)Math.Round(morphStartRect.Width + (morphDestRect.Width - morphStartRect.Width) * e);
+    int h = (int)Math.Round(morphStartRect.Height + (morphDestRect.Height - morphStartRect.Height) * e);
+    try { SetBounds(x, y, w, h); using (var gp = RoundedPath(0, 0, w, h, RegionRad(h))) Region = new Region(gp); } catch {}
   }
   void EndMorph() {
     morphing = false; minimized = (morphDir == 1);
     int w = CurW(), h = CurH();
-    int nx = morphAnchorRight - w, ny = morphAnchorTop;
-    if (!userMoved && !dragging) { var np = HudLayout.Place(pid, bornMs, w, h, false, minimized); nx = np.X; ny = np.Y; }   // estaciona no dock ja no fim do morph (sem esperar o tick de 1s)
+    int nx = morphDestRect.X, ny = morphDestRect.Y;
+    // slot FINAL (mini no minimizar, cheio no expandir): so agora as vizinhas fecham o espaco reservado
+    if (!userMoved && !dragging) { var np = HudLayout.Place(pid, bornMs, w, h, false, minimized); nx = np.X; ny = np.Y; }
     try { SetBounds(nx, ny, w, h); using (var gp = RoundedPath(0, 0, w, h, RegionRad(h))) Region = new Region(gp); } catch {}
     try { if (fullShot != null) { fullShot.Dispose(); fullShot = null; } } catch {}
     try { if (miniShotBmp != null) { miniShotBmp.Dispose(); miniShotBmp = null; } } catch {}

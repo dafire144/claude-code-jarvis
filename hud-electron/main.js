@@ -16,6 +16,7 @@ const ROOT = path.join(__dirname, '..', 'hud-sessions');
 // coordenador de layout compartilhado — MESMO dir/protocolo do nativo (HudLayout.cs)
 const SLOTS = path.join(__dirname, '..', 'hud-native', '.slots');
 const GAP = 10, SLOT_STALE = 4000, SLOT_ORPHAN = 12000;
+const FULLW = 380, COLGAP = 12, BOTTOMPAD = 6;   // dock SANFONA: passo de coluna + folga inferior (espelha HudLayout.cs)
 // posicao do dock configuravel: le hud-native/hud-dock.cfg ("top=NN"/"right=NN"), default 42/12.
 function loadDock() {
   let top = 42, margin = 12;
@@ -60,13 +61,31 @@ function wantStartMinimized() {
   return false;
 }
 
-// posiciona no canto direito seguindo o MESMO algoritmo do HudLayout.cs nativo: minimizada
-// sempre acima de cheia; dentro do grupo, ordem de abertura; empilha pela altura real.
-function place(mini) {
-  try { fs.mkdirSync(SLOTS, { recursive: true }); } catch (e) {}
+// EMPACOTADOR PURO (espelha HudLayout.Pack do nativo): modelo SANFONA (ordem de abertura).
+// Ordena por (claim, pid); empilha do topo pra baixo encostando na direita; quando a proxima
+// nao cabe antes do fim da tela, comeca uma coluna NOVA a esquerda (passo = largura cheia).
+// Determinista -> toda janela chega ao mesmo mapa -> zero vao/sobreposicao por desacordo.
+function packLayout(wins, area, top, margin) {
+  const items = wins.slice().sort((a, b) => (a.claim !== b.claim) ? (a.claim - b.claim) : (a.pid - b.pid));
+  const rightEdge = area.x + area.width - margin;
+  const topY = area.y + top;
+  const bottom = area.y + area.height - BOTTOMPAD;
+  const colPitch = FULLW + COLGAP;
+  let col = 0, y = topY;
+  const out = {};
+  for (const s of items) {
+    if (y !== topY && y + s.h > bottom) { col++; y = topY; }   // nao cabe -> proxima coluna (esquerda)
+    let sx = rightEdge - col * colPitch - s.w;
+    if (sx < area.x + 6) sx = area.x + 6;                       // ultima linha de defesa: nao sai da tela
+    out[s.pid] = { x: Math.round(sx), y: Math.round(y) };
+    y += s.h + GAP;
+  }
+  return out;
+}
+// le os slots vivos do disco (limpa orfaos, ignora mortos); inclui o meu com w/h atuais.
+function liveWins(selfW, selfH) {
   const now = Date.now();
-  const w = mini ? MINI_W : W, h = mini ? MINI_H : H;
-  let aboveH = 0;
+  const wins = [{ claim: bornMs, h: selfH, pid: myPid, w: selfW }];
   try {
     for (const f of fs.readdirSync(SLOTS)) {
       if (!f.endsWith('.slot')) continue;
@@ -79,22 +98,22 @@ function place(mini) {
       if (isNaN(oclaim) || isNaN(oh) || isNaN(ohb)) continue;
       if (now - ohb > SLOT_ORPHAN) { try { fs.unlinkSync(path.join(SLOTS, f)); } catch (e) {} continue; }
       if (now - ohb > SLOT_STALE) continue;               // sem heartbeat: janela morta, nao ocupa espaco
-      const omini = parts.length >= 7 && parts[6] === '1';
-      let above;
-      if (omini !== !!mini) above = omini;                // minimizada sempre ACIMA de cheia
-      else above = oclaim < bornMs || (oclaim === bornMs && opid < myPid);
-      if (above) aboveH += oh + GAP;
+      let ow = FULLW; if (parts.length >= 6) { const t = parseInt(parts[5], 10); if (!isNaN(t)) ow = t; }   // slot antigo -> assume cheia
+      wins.push({ claim: oclaim, h: oh, pid: opid, w: ow });
     }
   } catch (e) {}
+  return wins;
+}
+function place(mini) {
+  try { fs.mkdirSync(SLOTS, { recursive: true }); } catch (e) {}
+  const now = Date.now();
+  const w = mini ? MINI_W : W, h = mini ? MINI_H : H;
   const dock = loadDock();
   const area = screen.getPrimaryDisplay().workArea;
-  let x = area.x + area.width - w - dock.margin;
-  let y = area.y + dock.top + aboveH;
-  if (y + h > area.y + area.height - 6) y = area.y + dock.top;   // estourou embaixo: volta ao topo
-  if (x < area.x + 6) x = area.x + 6;
-  x = Math.round(x); y = Math.round(y);
-  try { fs.writeFileSync(path.join(SLOTS, myPid + '.slot'), bornMs + '|' + h + '|' + now + '|' + x + '|' + y + '|' + w + '|' + (mini ? '1' : '0')); } catch (e) {}
-  return { x: x, y: y, w: w, h: h };
+  const map = packLayout(liveWins(w, h), area, dock.top, dock.margin);
+  const pos = map[myPid] || { x: Math.round(area.x + area.width - w - dock.margin), y: Math.round(area.y + dock.top) };
+  try { fs.writeFileSync(path.join(SLOTS, myPid + '.slot'), bornMs + '|' + h + '|' + now + '|' + pos.x + '|' + pos.y + '|' + w + '|' + (mini ? '1' : '0')); } catch (e) {}
+  return { x: pos.x, y: pos.y, w: w, h: h };
 }
 function releaseSlot() { try { fs.unlinkSync(path.join(SLOTS, myPid + '.slot')); } catch (e) {} }
 function applyBounds(win, x, y, w, h) {
@@ -142,7 +161,7 @@ app.whenReady().then(() => {
       try { const b = win.getBounds(); if (!lastPlaced || Math.abs(b.x - lastPlaced.x) > 3 || Math.abs(b.y - lastPlaced.y) > 3) { userMoved = true; releaseSlot(); } } catch (e) {}
     });
     // recompacta 1x/s (dock + empilhamento) e mantem o heartbeat do slot fresco
-    const relayout = setInterval(() => { if (!userMoved) redock(win); }, 250);
+    const relayout = setInterval(() => { if (!userMoved) redock(win); }, 150);
     win.on('closed', () => { try { clearInterval(relayout); } catch (e) {} releaseSlot(); });
 
     ipcMain.on('hud-close', () => { try { win.close(); } catch (e) {} });

@@ -34,7 +34,7 @@ class FanoutHud : Form {
   double phase = 0;
   bool dragging; Point dragStart;
   int pid; bool userMoved, movedDuringDrag;   // arrasto manual tira a janela do auto-layout
-  WinTimer dataTimer, animTimer;
+  WinTimer dataTimer, animTimer, layoutTimer;
   Mutex mutex;
   bool periodSet;
   [System.Runtime.InteropServices.DllImport("winmm.dll")] static extern uint timeBeginPeriod(uint p);
@@ -109,6 +109,10 @@ class FanoutHud : Form {
     dataTimer.Tick += delegate { DataTick(); };
     dataTimer.Start();
 
+    layoutTimer = new WinTimer(); layoutTimer.Interval = 150;   // reflow rapido no dock (paridade com a telinha de sessao)
+    layoutTimer.Tick += delegate { PlaceTick(); };
+    layoutTimer.Start();
+
     animTimer = new WinTimer(); animTimer.Interval = 33;   // 30fps: divisor exato de 60Hz -> sem judder
     // fase pelo RELOGIO (nao por incremento): velocidade estavel em qualquer fps, sem "saltos"
     // se um tick atrasar. Divisor 471 preserva a cadencia anterior (0.14/66ms ~= 2.1 voltas/s).
@@ -156,8 +160,15 @@ class FanoutHud : Form {
     // arquivo de missao sumiu (faxina) -> encerra
     if (file != null && !File.Exists(file) && now - bornMs > 5000) { Close(); return; }
     if (closeAt > 0 && now >= closeAt) { Close(); return; }
-    if (!userMoved && !dragging) { var np = HudLayout.Place(pid, bornMs, W, H, false, false); if (np != Location) Location = np; }
+    PlaceTick();
     Invalidate();
+  }
+
+  // reflow rapido no dock (150ms): a casa de festas reencaixa junto das telinhas de sessao
+  void PlaceTick() {
+    if (userMoved || dragging) return;
+    var np = HudLayout.Place(pid, bornMs, W, H, false, false);
+    if (np != Location) Location = np;
   }
 
   // ------- pintura -------
