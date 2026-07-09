@@ -15,6 +15,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.Drawing.Text;
 using System.Globalization;
 using System.IO;
@@ -57,8 +58,18 @@ class FanoutHud : Form {
 
   const int W = 342, H = 190, PAD = 14, RAD = 15;
   static Rectangle closeRect = new Rectangle(W - 24, 8, 18, 18);
+  static Rectangle minRect = new Rectangle(W - 44, 8, 16, 18);   // minimizar (–), a esquerda do fechar
   static Rectangle swarmRect = new Rectangle(6, 50, 112, 134);
   const int SCX = 62, SCY = 120;   // centro do enxame
+  // ---- MINIMIZAR: a telinha de fan-out colapsa numa mini-capsula (enxame + agente + tempo) e
+  // reabre no clique -- mesma maquina de morph (reserva-e-cresce) da telinha de sessao. ----
+  bool minimized = false, morphing = false; long morphStart = 0; int morphDir = 0;
+  Rectangle morphStartRect, morphDestRect;
+  Bitmap fullShot = null, miniShotBmp = null;
+  const int MINI_W = 182, MINI_H = 54, MORPH_MS = 300;
+  static Rectangle miniCloseRect = new Rectangle(MINI_W - 16, 5, 11, 11);   // fechar (mini)
+  int CurW() { return minimized ? MINI_W : W; }
+  int CurH() { return minimized ? MINI_H : H; }
 
   public static void Run(string missionFile) {
     string id = Path.GetFileNameWithoutExtension(missionFile);
@@ -69,16 +80,18 @@ class FanoutHud : Form {
     Application.Run(new FanoutHud(missionFile, m));
   }
 
-  public static void Shot(string outPng) { Shot(outPng, false, ""); }
-  public static void Shot(string outPng, bool asDone) { Shot(outPng, asDone, ""); }
-  public static void Shot(string outPng, bool asDone, string kindArg) {
+  public static void Shot(string outPng) { Shot(outPng, false, "", false); }
+  public static void Shot(string outPng, bool asDone) { Shot(outPng, asDone, "", false); }
+  public static void Shot(string outPng, bool asDone, string kindArg) { Shot(outPng, asDone, kindArg, false); }
+  public static void Shot(string outPng, bool asDone, string kindArg, bool asMini) {
     var f = new FanoutHud(null, null);
     f.Seed(); f.kind = kindArg;
     if (kindArg == "qa") { f.proto = "AUDITORIA DE QUALIDADE"; f.agent = "orna-qa"; f.task = "Inspecao de qualidade do modulo, antes da entrega ao senhor."; f.phase = 5.7; }
     else if (kindArg == "qa_ultra") { f.proto = "AUDITORIA PROFUNDA"; f.agent = "orna-qa-ultra"; f.task = "Auditoria multiagente do dock: correcao, concorrencia e paridade."; f.phase = 2.2; }
     if (asDone) f.SeedDone();
-    var bmp = new Bitmap(W, H);
-    using (var g = Graphics.FromImage(bmp)) f.Render(g);
+    int bw = asMini ? MINI_W : W, bh = asMini ? MINI_H : H;
+    var bmp = new Bitmap(bw, bh);
+    using (var g = Graphics.FromImage(bmp)) { if (asMini) f.RenderMini(g); else f.Render(g); }
     bmp.Save(outPng, System.Drawing.Imaging.ImageFormat.Png);
   }
 
@@ -120,7 +133,16 @@ class FanoutHud : Form {
     animTimer = new WinTimer(); animTimer.Interval = 33;   // 30fps: divisor exato de 60Hz -> sem judder
     // fase pelo RELOGIO (nao por incremento): velocidade estavel em qualquer fps, sem "saltos"
     // se um tick atrasar. Divisor 471 preserva a cadencia anterior (0.14/66ms ~= 2.1 voltas/s).
-    animTimer.Tick += delegate { phase = (NowMs() - bornMs) / 471.0; Invalidate(swarmRect); };
+    animTimer.Tick += delegate {
+      phase = (NowMs() - bornMs) / 471.0;
+      if (morphing) {
+        double mt = (NowMs() - morphStart) / (double)MORPH_MS;
+        if (mt >= 1) { EndMorph(); return; }
+        ApplyMorphBounds(mt); Invalidate(); return;
+      }
+      if (minimized) { Invalidate(); return; }   // mini e pequeno: repinta tudo (barato)
+      Invalidate(swarmRect);
+    };
     if (!done) animTimer.Start();
   }
 
@@ -155,7 +177,8 @@ class FanoutHud : Form {
     long now = NowMs();
     // define quando fechar
     if (done) {
-      if (closeAt == 0) { closeAt = (doneAt > 0 ? doneAt : now) + 8000; if (animTimer.Enabled) animTimer.Stop(); Invalidate(); }
+      // mantem o animTimer vivo (custo minimo) p/ o morph/mini funcionarem mesmo apos concluir
+      if (closeAt == 0) { closeAt = (doneAt > 0 ? doneAt : now) + 8000; Invalidate(); }
     } else if (autoCloseSec > 0 && start > 0 && now - start > (long)autoCloseSec * 1000) {
       // processo em 2o plano sem sinal de fim: encerra o painel informativo
       if (closeAt == 0) closeAt = now + 200;
@@ -172,8 +195,8 @@ class FanoutHud : Form {
   // reflow rapido no dock (~60ms): a casa de festas reencaixa junto das telinhas de sessao
   void PlaceTick() {
     if (userMoved) return;
-    if (dragging) { HudLayout.Touch(pid); return; }   // arrastando: so renova o hb (nao morre pra vizinha)
-    var np = HudLayout.Place(pid, bornMs, W, H, false, false);
+    if (dragging || morphing) { HudLayout.Touch(pid); return; }   // usuario/morph controlam a posicao: so renova o hb
+    var np = HudLayout.Place(pid, bornMs, CurW(), CurH(), false, minimized);
     if (np != Location) Location = np;
   }
 
@@ -187,7 +210,11 @@ class FanoutHud : Form {
   Dictionary<int, SolidBrush> brushes = new Dictionary<int, SolidBrush>();
   SolidBrush B(Color c) { int k = c.ToArgb(); if (!brushes.ContainsKey(k)) brushes[k] = new SolidBrush(c); return brushes[k]; }
 
-  protected override void OnPaint(PaintEventArgs e) { Render(e.Graphics); }
+  protected override void OnPaint(PaintEventArgs e) {
+    if (morphing) { PaintMorph(e.Graphics); return; }      // colapso/expansao da mini-capsula
+    if (minimized) { RenderMini(e.Graphics); return; }     // mini-capsula no dock
+    Render(e.Graphics);
+  }
 
   public void Render(Graphics g) {
     g.SmoothingMode = SmoothingMode.AntiAlias;
@@ -202,10 +229,12 @@ class FanoutHud : Form {
     string st = done ? "CONCLUIDA" : (autoCloseSec > 0 ? "EM 2o PLANO" : "EM CAMPO");
     Color sc = done ? Online : Amber;
     float sw = g.MeasureString(st, fStat).Width;
-    float sx = W - 30 - sw;
+    float sx = W - 52 - sw;   // recuado p/ abrir espaco aos 2 botoes (– e x)
     using (var b = new SolidBrush(sc)) g.FillEllipse(b, sx - 12, 13, 7, 7);
     g.DrawString(st, fStat, B(sc), sx, 10);
-    g.DrawString("x", fClose, B(Faint), closeRect.X + 3, closeRect.Y - 2);
+    // botoes MINIMIZAR (–) e FECHAR (x), no canto sup-direito, em ambar visivel
+    using (var mp = new Pen(AmberMut, 2f)) { mp.StartCap = LineCap.Round; mp.EndCap = LineCap.Round; g.DrawLine(mp, minRect.X + 3, minRect.Y + 9, minRect.X + 13, minRect.Y + 9); }
+    g.DrawString("x", fClose, B(AmberMut), closeRect.X + 3, closeRect.Y - 2);
 
     // titulo tematico (protocolo)
     g.DrawString(Fit(g, Title(), fTitle, W - 2 * PAD), fTitle, B(AmberBright), PAD - 2, 28);
@@ -430,7 +459,14 @@ class FanoutHud : Form {
   // ------- interacao -------
   protected override void OnMouseDown(MouseEventArgs e) {
     if (e.Button == MouseButtons.Left) {
+      if (morphing) return;                                  // durante o morph, ignora cliques
+      if (minimized) {
+        if (miniCloseRect.Contains(e.Location)) { Close(); return; }
+        dragging = true; dragStart = e.Location;              // clique simples restaura (decidido no MouseUp)
+        base.OnMouseDown(e); return;
+      }
       if (closeRect.Contains(e.Location)) { Close(); return; }
+      if (minRect.Contains(e.Location)) { BeginMorph(true); return; }   // minimizar
       dragging = true; dragStart = e.Location;
     }
     base.OnMouseDown(e);
@@ -439,6 +475,122 @@ class FanoutHud : Form {
     if (dragging) { Location = new Point(Location.X + e.X - dragStart.X, Location.Y + e.Y - dragStart.Y); movedDuringDrag = true; }
     base.OnMouseMove(e);
   }
-  protected override void OnMouseUp(MouseEventArgs e) { if (dragging) { dragging = false; if (movedDuringDrag) { userMoved = true; HudLayout.Release(pid); } movedDuringDrag = false; } base.OnMouseUp(e); }
-  protected override void OnFormClosed(FormClosedEventArgs e) { try { if (periodSet) { timeEndPeriod(1); periodSet = false; } } catch {} try { HudLayout.Release(pid); } catch {} try { if (mutex != null) mutex.ReleaseMutex(); } catch {} base.OnFormClosed(e); }
+  protected override void OnMouseUp(MouseEventArgs e) {
+    if (dragging) {
+      dragging = false;
+      if (movedDuringDrag) { userMoved = true; HudLayout.Release(pid); }
+      else if (minimized && !morphing) { BeginMorph(false); }   // clique simples na mini -> restaura
+      movedDuringDrag = false;
+    }
+    base.OnMouseUp(e);
+  }
+  // ------- MINIMIZAR: morph (reserva-e-cresce, mesma logica do HUD principal) + mini-capsula -------
+  static double SmoothStep(double t) { if (t < 0) t = 0; if (t > 1) t = 1; return t * t * (3 - 2 * t); }
+  float RegionRad(int h) { double p = (double)(H - h) / (H - MINI_H); if (p < 0) p = 0; if (p > 1) p = 1; return (float)(RAD + (MINI_H / 2.0 - RAD) * p); }
+  static ColorMatrix AlphaMatrix(double a) { if (a < 0) a = 0; if (a > 1) a = 1; var m = new ColorMatrix(); m.Matrix33 = (float)a; return m; }
+
+  void BeginMorph(bool toMini) {
+    if (morphing) return;
+    bool wasDragged = userMoved;
+    morphing = true; morphDir = toMini ? 1 : -1; morphStart = NowMs();
+    morphStartRect = Bounds;
+    if (toMini) userMoved = false;                                        // minimizar rejunta ao dock
+    if (toMini && wasDragged) {
+      Point p = HudLayout.Place(pid, bornMs, MINI_W, MINI_H, false, true);   // arrastada: entra JA como mini (sem solavanco duplo)
+      morphDestRect = new Rectangle(p.X, p.Y, MINI_W, MINI_H);
+    } else {
+      Point anchor;
+      if (!userMoved && !dragging) anchor = HudLayout.Place(pid, bornMs, W, H, false, false);   // reserva a pegada CHEIA no dock
+      else anchor = new Point(Location.X + Width - W, Location.Y);
+      morphDestRect = toMini ? new Rectangle(anchor.X + W - MINI_W, anchor.Y, MINI_W, MINI_H)
+                             : new Rectangle(anchor.X, anchor.Y, W, H);
+    }
+    try { fullShot = new Bitmap(W, H); using (var g = Graphics.FromImage(fullShot)) Render(g); } catch { fullShot = null; }
+    try { miniShotBmp = new Bitmap(MINI_W, MINI_H); using (var g = Graphics.FromImage(miniShotBmp)) RenderMini(g); } catch { miniShotBmp = null; }
+    if (animTimer != null) { animTimer.Interval = 8; if (!animTimer.Enabled) animTimer.Start(); }   // morph liso; garante rodando mesmo apos concluir
+  }
+  void ApplyMorphBounds(double t) {
+    double e = SmoothStep(t);
+    int x = (int)Math.Round(morphStartRect.X + (morphDestRect.X - morphStartRect.X) * e);
+    int y = (int)Math.Round(morphStartRect.Y + (morphDestRect.Y - morphStartRect.Y) * e);
+    int w = (int)Math.Round(morphStartRect.Width + (morphDestRect.Width - morphStartRect.Width) * e);
+    int h = (int)Math.Round(morphStartRect.Height + (morphDestRect.Height - morphStartRect.Height) * e);
+    try { SetBounds(x, y, w, h); using (var gp = RoundedPath(0, 0, w, h, RegionRad(h))) Region = new Region(gp); } catch {}
+  }
+  void EndMorph() {
+    morphing = false; minimized = (morphDir == 1);
+    int w = CurW(), h = CurH();
+    int nx = morphDestRect.X, ny = morphDestRect.Y;
+    if (!userMoved && !dragging) { var np = HudLayout.Place(pid, bornMs, w, h, false, minimized); nx = np.X; ny = np.Y; }
+    try { SetBounds(nx, ny, w, h); using (var gp = RoundedPath(0, 0, w, h, RegionRad(h))) Region = new Region(gp); } catch {}
+    try { if (fullShot != null) { fullShot.Dispose(); fullShot = null; } } catch {}
+    try { if (miniShotBmp != null) { miniShotBmp.Dispose(); miniShotBmp = null; } } catch {}
+    if (animTimer != null) animTimer.Interval = 33;   // regime normal (mini e cheio animam a 30fps)
+    Invalidate();
+  }
+  void PaintMorph(Graphics g) {
+    double t = (NowMs() - morphStart) / (double)MORPH_MS; if (t < 0) t = 0; if (t > 1) t = 1;
+    double p = morphDir == 1 ? SmoothStep(t) : SmoothStep(1 - t);
+    int w = Width, h = Height;
+    g.SmoothingMode = SmoothingMode.AntiAlias; g.InterpolationMode = InterpolationMode.Bilinear;
+    using (var bgb = new SolidBrush(Ink2)) using (var gp = RoundedPath(0, 0, w, h, RegionRad(h))) g.FillPath(bgb, gp);
+    if (fullShot != null && p < 0.98) using (var ia = new ImageAttributes()) { ia.SetColorMatrix(AlphaMatrix(1 - p)); g.DrawImage(fullShot, new Rectangle(0, 0, w, h), 0, 0, W, H, GraphicsUnit.Pixel, ia); }
+    if (miniShotBmp != null && p > 0.02) using (var ia = new ImageAttributes()) { ia.SetColorMatrix(AlphaMatrix(p)); g.DrawImage(miniShotBmp, new Rectangle(0, 0, w, h), 0, 0, MINI_W, MINI_H, GraphicsUnit.Pixel, ia); }
+  }
+
+  // titulo curto p/ a mini-capsula (quando nao ha nome de agente)
+  string MiniTitle() {
+    if (kind == "qa_ultra") return "AUDITORIA";
+    if (kind == "qa") return "INSPECAO";
+    string p = proto.ToUpperInvariant();
+    if (p.IndexOf("WORKFLOW") >= 0) return "CASA DE FESTAS";
+    if (p.IndexOf("SEGUNDO PLANO") >= 0) return "EM 2o PLANO";
+    if (p.IndexOf("SUBAGENTE") >= 0) return "AGENTE";
+    if (p.IndexOf("PROCESSO") >= 0) return "PROCESSO";
+    return "MISSAO";
+  }
+  // MINI-CAPSULA do fan-out: enxame compacto a esquerda + agente (ou protocolo) + status/tempo.
+  void RenderMini(Graphics g) {
+    g.SmoothingMode = SmoothingMode.AntiAlias; g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+    var rect = new Rectangle(0, 0, MINI_W, MINI_H);
+    using (var bg = new LinearGradientBrush(rect, Ink1, Ink2, 60f)) using (var gp = RoundedPath(0, 0, MINI_W, MINI_H, MINI_H / 2f)) g.FillPath(bg, gp);
+    using (var gp = RoundedPath(0.7f, 0.7f, MINI_W - 1.4f, MINI_H - 1.4f, (MINI_H - 1.4f) / 2f))
+    using (var pen = new Pen(Color.FromArgb(210, BorderC), 1.3f)) g.DrawPath(pen, gp);
+    DrawMiniSwarm(g, 27, MINI_H / 2f);
+    float tx = 52;
+    Color sc = done ? Online : Amber;
+    string t1 = agent.Length > 0 ? agent : MiniTitle();
+    g.DrawString(Fit(g, t1, fStat, MINI_W - tx - 16), fStat, B(AmberBright), tx, 9);
+    string t2 = (done ? "CONCLUIDA" : "EM CURSO") + "  " + Elapsed();
+    g.DrawString(Fit(g, t2, fTiny, MINI_W - tx - 12), fTiny, B(sc), tx, 27);
+    g.DrawString("x", fTiny, B(Faint), miniCloseRect.X + 1, miniCloseRect.Y - 2);
+    g.DrawImage(Cine.Overlay(MINI_W, MINI_H), rect);
+  }
+  // enxame compacto (le bem em ~44px): 1 anel de 3 nos girando + nucleo pulsando
+  void DrawMiniSwarm(Graphics g, float cx, float cy) {
+    bool live = !done;
+    float a = (float)(phase * 16.0);
+    using (var p = new Pen(Color.FromArgb(40, BorderC), 1f)) g.DrawEllipse(p, cx - 15, cy - 15, 30, 30);
+    for (int i = 0; i < 3; i++) {
+      double ang = (a + i * 120.0) * Math.PI / 180.0;
+      float nx = cx + (float)Math.Cos(ang) * 15, ny = cy + (float)Math.Sin(ang) * 15;
+      using (var lp = new Pen(Color.FromArgb(done ? 40 : 70, done ? Online : Amber), 1f)) g.DrawLine(lp, cx, cy, nx, ny);
+      float np = 2.4f + (live ? 0.8f * (float)Math.Sin(phase * 2.5 + i * 1.3) : 0f);
+      Color nc = done ? Online : AmberBright;
+      using (var b = new SolidBrush(nc)) g.FillEllipse(b, nx - np, ny - np, 2 * np, 2 * np);
+    }
+    float pr = 4f + (live ? 1f * (float)Math.Sin(phase * 2.3) : 0f);
+    using (var gl = new SolidBrush(Color.FromArgb(80, AmberBright))) g.FillEllipse(gl, cx - pr - 3, cy - pr - 3, 2 * pr + 6, 2 * pr + 6);
+    using (var b = new SolidBrush(done ? Online : Amber)) g.FillEllipse(b, cx - pr, cy - pr, 2 * pr, 2 * pr);
+    using (var b = new SolidBrush(Color.FromArgb(255, 255, 246, 224))) g.FillEllipse(b, cx - 1.6f, cy - 1.6f, 3.2f, 3.2f);
+  }
+
+  protected override void OnFormClosed(FormClosedEventArgs e) {
+    try { if (fullShot != null) { fullShot.Dispose(); fullShot = null; } } catch {}
+    try { if (miniShotBmp != null) { miniShotBmp.Dispose(); miniShotBmp = null; } } catch {}
+    try { if (periodSet) { timeEndPeriod(1); periodSet = false; } } catch {}
+    try { HudLayout.Release(pid); } catch {}
+    try { if (mutex != null) mutex.ReleaseMutex(); } catch {}
+    base.OnFormClosed(e);
+  }
 }
