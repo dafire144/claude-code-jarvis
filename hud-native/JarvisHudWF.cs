@@ -265,7 +265,7 @@ class JarvisHudWF : Form {
     dataTimer.Tick += delegate { DataTick(); };
     dataTimer.Start();
 
-    layoutTimer = new WinTimer(); layoutTimer.Interval = 150;   // recompacta o dock ~7x/s: a vizinha reencaixa quase na hora ao minimizar/expandir/fechar (sem overlap)
+    layoutTimer = new WinTimer(); layoutTimer.Interval = 60;   // recompacta o dock ~16x/s: a vizinha reencaixa em ate ~60ms ao expandir/minimizar/fechar (transiente sub-perceptivel; o throttle de escrita mantem o disco leve)
     layoutTimer.Tick += delegate { PlaceTick(); };
     layoutTimer.Start();
 
@@ -347,10 +347,11 @@ class JarvisHudWF : Form {
     else status = "ONLINE";
   }
 
-  // recompacta a posicao no dock (chamado 4x/s pelo layoutTimer, alem do DataTick de 1s):
-  // quando uma telinha minimiza/expande/fecha, as vizinhas reencaixam quase na hora -> sem overlap.
+  // recompacta a posicao no dock (~16x/s pelo layoutTimer, alem do DataTick de 1s): quando uma
+  // telinha minimiza/expande/fecha, as vizinhas reencaixam em ate ~60ms -> transiente minimo.
   void PlaceTick() {
-    if (userMoved || dragging || morphing || closing || booting) return;
+    if (userMoved || closing) return;                          // fora do fluxo / fechando: nada
+    if (dragging || morphing || booting) { HudLayout.Touch(pid); return; }   // em flux mas sem recalcular: so renova o hb (nao morre pra vizinha)
     var np = HudLayout.Place(pid, bornMs, CurW(), CurH(), false, minimized);
     if (np != Location) Location = np;
   }
@@ -464,7 +465,7 @@ class JarvisHudWF : Form {
   // inteira por TRANS_MS a ~60fps. One-shot: fora da transicao o custo volta ao normal.
   void BeginModelTrans() {
     if (mutex == null) { heat = fable ? 1 : 0; return; }   // modo --shot: sem animacao
-    if (minimized || morphing) { heat = fable ? 1 : 0; miniBgDirty = true; return; }   // mini: troca sem a onda (sem espaco)
+    if (minimized || morphing) { heat = fable ? 1 : 0; inTrans = false; miniBgDirty = true; return; }   // mini: troca sem a onda; ZERA inTrans p/ nao ficar preso na pele errada ao restaurar (achado #3)
     inTrans = true; transStart = NowMs(); heatFrom = heat; heatTo = fable ? 1 : 0;
     if (animTimer != null && !closing) animTimer.Interval = 16;
   }
@@ -617,6 +618,7 @@ class JarvisHudWF : Form {
 
   void BeginMorph(bool toMini) {
     if (morphing) return;
+    if (inTrans) { heat = heatTo; inTrans = false; }                      // completa transicao de modo pendente (senao minimizar a deixa presa na pele errada, achado #3)
     morphing = true; morphDir = toMini ? 1 : -1; morphStart = NowMs();
     morphStartRect = Bounds;                                              // de onde a janela parte (coord de tela)
     if (toMini) userMoved = false;                                        // minimizar rejunta ao auto-layout (estaciona no dock)

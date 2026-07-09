@@ -113,7 +113,7 @@ class FanoutHud : Form {
     dataTimer.Tick += delegate { DataTick(); };
     dataTimer.Start();
 
-    layoutTimer = new WinTimer(); layoutTimer.Interval = 150;   // reflow rapido no dock (paridade com a telinha de sessao)
+    layoutTimer = new WinTimer(); layoutTimer.Interval = 60;   // reflow rapido no dock (~16x/s, paridade com a telinha de sessao)
     layoutTimer.Tick += delegate { PlaceTick(); };
     layoutTimer.Start();
 
@@ -169,9 +169,10 @@ class FanoutHud : Form {
     Invalidate();
   }
 
-  // reflow rapido no dock (150ms): a casa de festas reencaixa junto das telinhas de sessao
+  // reflow rapido no dock (~60ms): a casa de festas reencaixa junto das telinhas de sessao
   void PlaceTick() {
-    if (userMoved || dragging) return;
+    if (userMoved) return;
+    if (dragging) { HudLayout.Touch(pid); return; }   // arrastando: so renova o hb (nao morre pra vizinha)
     var np = HudLayout.Place(pid, bornMs, W, H, false, false);
     if (np != Location) Location = np;
   }

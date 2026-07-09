@@ -2,9 +2,11 @@
 // Espelha a versao nativa do Windows: janela sem moldura, transparente, sempre-no-topo,
 // uma por sessao, com IGNICAO cinematica na abertura e desligamento CRT no fim. Le
 // hud-sessions/<sid>/ (meta/feed/progress/done/end/closed) escritos pelos hooks.
-// LAYOUT multi-janela: mesmo protocolo .slots do nativo (HudLayout.cs) — as minimizadas
-// estacionam no topo do canto direito e empilham uma sob a outra; as cheias ficam abaixo;
-// recompacta 1x/s; janela arrastada sai do fluxo. "ABRIR MINIMIZADA" (opt-in) via env
+// LAYOUT multi-janela: mesmo protocolo .slots do nativo (HudLayout.cs) — modelo SANFONA:
+// as telinhas empilham na ORDEM DE ABERTURA (claim), cada uma na sua altura; transborda pra
+// coluna a esquerda quando enche; over-capacity vira escada diagonal (canto sempre agarravel).
+// Empacotamento determinista (packLayout), escrita de slot ATOMICA (tmp+rename), recompacta
+// ~16x/s; janela arrastada sai do fluxo. "ABRIR MINIMIZADA" (opt-in) via env
 // JARVIS_HUD_START_MINIMIZED=1 ou o arquivo start-minimized.flag.
 // Modos de QA: --shot <png> [fable], --shot-mini <png> [fable], --shot-boot/-shut ...
 const { app, BrowserWindow, ipcMain, screen } = require('electron');
@@ -67,18 +69,29 @@ function wantStartMinimized() {
 // Determinista -> toda janela chega ao mesmo mapa -> zero vao/sobreposicao por desacordo.
 function packLayout(wins, area, top, margin) {
   const items = wins.slice().sort((a, b) => (a.claim !== b.claim) ? (a.claim - b.claim) : (a.pid - b.pid));
+  if (top < 0) top = 0; else if (top > area.height - 120) top = Math.max(0, area.height - 120);       // dock dentro da tela mesmo com cfg absurdo
+  if (margin < 0) margin = 0; else if (margin > area.width - 120) margin = Math.max(0, area.width - 120);
   const rightEdge = area.x + area.width - margin;
   const topY = area.y + top;
   const bottom = area.y + area.height - BOTTOMPAD;
   const colPitch = FULLW + COLGAP;
-  let col = 0, y = topY;
+  const maxCol = Math.max(0, Math.floor((rightEdge - (area.x + 6) - FULLW) / colPitch));   // colunas reais que cabem
+  let col = 0, y = topY, cascade = 0;
   const out = {};
   for (const s of items) {
-    if (y !== topY && y + s.h > bottom) { col++; y = topY; }   // nao cabe -> proxima coluna (esquerda)
-    let sx = rightEdge - col * colPitch - s.w;
-    if (sx < area.x + 6) sx = area.x + 6;                       // ultima linha de defesa: nao sai da tela
-    out[s.pid] = { x: Math.round(sx), y: Math.round(y) };
-    y += s.h + GAP;
+    if (col <= maxCol && y !== topY && y + s.h > bottom) { col++; y = topY; }   // coluna cheia -> proxima a esquerda
+    if (col <= maxCol) {
+      const sx = rightEdge - col * colPitch - s.w;                              // coluna real: encosta na direita
+      out[s.pid] = { x: Math.round(sx), y: Math.round(y) };
+      y += s.h + GAP;
+    } else {
+      // OVER-CAPACITY: escada diagonal do topo-esquerdo -> cada canto sup-direito distinto e agarravel
+      let cx2 = area.x + 6 + (cascade % 5) * 26;
+      let cy2 = topY + (cascade % 5) * 30 + Math.floor(cascade / 5) * 6;
+      if (cy2 + s.h > bottom) cy2 = topY + Math.floor(cascade / 5) * 6;
+      out[s.pid] = { x: Math.round(cx2), y: Math.round(cy2) };
+      cascade++;
+    }
   }
   return out;
 }
@@ -104,6 +117,13 @@ function liveWins(selfW, selfH) {
   } catch (e) {}
   return wins;
 }
+// escrita ATOMICA do slot (tmp + rename): leitor concorrente nunca ve conteudo parcial (torn read)
+let lastBody = null, lastWriteMs = 0;
+function writeSlotAtomic(content) {
+  const dst = path.join(SLOTS, myPid + '.slot'), tmp = dst + '.tmp';
+  try { fs.writeFileSync(tmp, content); fs.renameSync(tmp, dst); }
+  catch (e) { try { fs.writeFileSync(dst, content); } catch (e2) {} }   // fallback nao-atomico
+}
 function place(mini) {
   try { fs.mkdirSync(SLOTS, { recursive: true }); } catch (e) {}
   const now = Date.now();
@@ -112,7 +132,11 @@ function place(mini) {
   const area = screen.getPrimaryDisplay().workArea;
   const map = packLayout(liveWins(w, h), area, dock.top, dock.margin);
   const pos = map[myPid] || { x: Math.round(area.x + area.width - w - dock.margin), y: Math.round(area.y + dock.top) };
-  try { fs.writeFileSync(path.join(SLOTS, myPid + '.slot'), bornMs + '|' + h + '|' + now + '|' + pos.x + '|' + pos.y + '|' + w + '|' + (mini ? '1' : '0')); } catch (e) {}
+  const body = bornMs + '|' + h + '|' + pos.x + '|' + pos.y + '|' + w + '|' + (mini ? '1' : '0');
+  if (body !== lastBody || now - lastWriteMs >= SLOT_STALE / 2) {   // so reescreve em mudanca de posicao ou hb envelhecido -> disco leve
+    writeSlotAtomic(bornMs + '|' + h + '|' + now + '|' + pos.x + '|' + pos.y + '|' + w + '|' + (mini ? '1' : '0'));
+    lastBody = body; lastWriteMs = now;
+  }
   return { x: pos.x, y: pos.y, w: w, h: h };
 }
 function releaseSlot() { try { fs.unlinkSync(path.join(SLOTS, myPid + '.slot')); } catch (e) {} }
@@ -161,7 +185,7 @@ app.whenReady().then(() => {
       try { const b = win.getBounds(); if (!lastPlaced || Math.abs(b.x - lastPlaced.x) > 3 || Math.abs(b.y - lastPlaced.y) > 3) { userMoved = true; releaseSlot(); } } catch (e) {}
     });
     // recompacta 1x/s (dock + empilhamento) e mantem o heartbeat do slot fresco
-    const relayout = setInterval(() => { if (!userMoved) redock(win); }, 150);
+    const relayout = setInterval(() => { if (!userMoved) redock(win); }, 60);   // ~16x/s: transiente de reflow sub-perceptivel (paridade com o nativo)
     win.on('closed', () => { try { clearInterval(relayout); } catch (e) {} releaseSlot(); });
 
     ipcMain.on('hud-close', () => { try { win.close(); } catch (e) {} });

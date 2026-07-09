@@ -26,6 +26,8 @@ static class HudLayout {
   const int BOTTOMPAD = 6;     // folga da borda inferior
   const long STALE = 4000;     // slot sem heartbeat ha >4s = janela morta -> ignora
   const long ORPHAN = 12000;   // >12s -> apaga o arquivo orfao
+  static string lastBody = null;   // ultima POSICAO gravada (sem o hb) -> throttle de escrita
+  static long lastWriteMs = 0;
 
   // janela para o empacotador puro
   public struct Win { public long claim; public int h; public int pid; public int w; }
@@ -75,18 +77,32 @@ static class HudLayout {
       if (a.claim != b.claim) return a.claim < b.claim ? -1 : 1;
       return a.pid.CompareTo(b.pid);
     });
+    // guarda o dock DENTRO da tela mesmo com hud-dock.cfg absurdo (top/right negativo ou gigante)
+    if (topgap < 0) topgap = 0; else if (topgap > wa.Height - 120) topgap = Math.Max(0, wa.Height - 120);
+    if (margin < 0) margin = 0; else if (margin > wa.Width - 120) margin = Math.Max(0, wa.Width - 120);
     int rightEdge = wa.Right - margin;
     int top = wa.Top + topgap;
     int bottom = wa.Bottom - BOTTOMPAD;
     int colPitch = FULLW + COLGAP;
-    int col = 0, y = top;
+    int maxCol = (rightEdge - (wa.Left + 6) - FULLW) / colPitch; if (maxCol < 0) maxCol = 0;   // colunas reais que cabem
+    int col = 0, y = top, cascade = 0;
     for (int i = 0; i < items.Count; i++) {
       Win s = items[i];
-      if (y != top && y + s.h > bottom) { col++; y = top; }   // nao cabe -> proxima coluna (esquerda)
-      int sx = rightEdge - col * colPitch - s.w;
-      if (sx < wa.Left + 6) sx = wa.Left + 6;                  // ultima linha de defesa: nao sai da tela
-      outp[s.pid] = new Point(sx, y);
-      y += s.h + GAP;
+      if (col <= maxCol && y != top && y + s.h > bottom) { col++; y = top; }   // coluna cheia -> proxima a esquerda
+      if (col <= maxCol) {
+        int sx = rightEdge - col * colPitch - s.w;                             // coluna real: encosta na direita, sempre na tela
+        outp[s.pid] = new Point(sx, y);
+        y += s.h + GAP;
+      } else {
+        // OVER-CAPACITY (mais janelas do que a tela comporta): impossivel sem sobrepor, mas
+        // NAO empilha identico -> escada diagonal do topo-esquerdo. Cada canto superior-direito
+        // (fechar/minimizar) fica num ponto DISTINTO e agarravel (nunca 100% coberto).
+        int cx2 = wa.Left + 6 + (cascade % 5) * 26;
+        int cy2 = top + (cascade % 5) * 30 + (cascade / 5) * 6;
+        if (cy2 + s.h > bottom) cy2 = top + (cascade / 5) * 6;
+        outp[s.pid] = new Point(cx2, cy2);
+        cascade++;
+      }
     }
     return outp;
   }
@@ -131,9 +147,42 @@ static class HudLayout {
     Point mine;
     if (!map.TryGetValue(pid, out mine)) mine = new Point(wa.Right - MARGIN - w, wa.Top + TOPGAP);
 
-    if (detached) { try { if (File.Exists(me)) File.Delete(me); } catch {} }
-    else { try { File.WriteAllText(me, claim + "|" + h + "|" + now + "|" + mine.X + "|" + mine.Y + "|" + w + "|" + (mini ? "1" : "0")); } catch {} }
+    if (detached) { try { if (File.Exists(me)) File.Delete(me); } catch {} lastBody = null; }
+    else {
+      // so REESCREVE quando a posicao muda OU o heartbeat envelhece (>STALE/2) -> o rename atomico
+      // nao roda a cada tick e o disco descansa (o poll rapido fica quase todo em leitura barata).
+      string body = claim + "|" + h + "|" + mine.X + "|" + mine.Y + "|" + w + "|" + (mini ? "1" : "0");
+      if (body != lastBody || now - lastWriteMs >= STALE / 2) {
+        WriteSlot(me, claim + "|" + h + "|" + now + "|" + mine.X + "|" + mine.Y + "|" + w + "|" + (mini ? "1" : "0"));
+        lastBody = body; lastWriteMs = now;
+      }
+    }
     return mine;
+  }
+
+  // renova SO o heartbeat do slot (mantendo a posicao) mesmo quando a janela NAO recalcula layout
+  // (arrastando/morph/boot). Sem isso, segurar o mouse parado >STALE fazia a vizinha empacotar por
+  // cima de uma janela viva (achado #6). Throttle proprio -> nao vira churn de escrita.
+  public static void Touch(int pid) {
+    if (lastBody == null) return;
+    long now = Now();
+    if (now - lastWriteMs < STALE / 2) return;
+    string[] p = lastBody.Split('|');   // claim|h|x|y|w|mini
+    if (p.Length < 6) return;
+    WriteSlot(Path.Combine(Dir(), pid + ".slot"), p[0] + "|" + p[1] + "|" + now + "|" + p[2] + "|" + p[3] + "|" + p[4] + "|" + p[5]);
+    lastWriteMs = now;
+  }
+
+  // escrita ATOMICA do slot (tmp + rename): um leitor concorrente nunca ve conteudo parcial/vazio
+  // (evita o "torn read" que fazia a janela sumir do arranjo de 1 tick e piscar sobreposicao).
+  static void WriteSlot(string path, string content) {
+    try {
+      string tmp = path + ".tmp";
+      File.WriteAllText(tmp, content);
+      if (File.Exists(path)) File.Replace(tmp, path, null); else File.Move(tmp, path);   // rename atomico no NTFS
+    } catch {
+      try { File.WriteAllText(path, content); } catch {}   // fallback: melhor um write nao-atomico do que nenhum
+    }
   }
 
   public static void Release(int pid) {
@@ -213,7 +262,17 @@ static class HudLayout {
           }
         } else {
           overCap++;
-          report.AppendLine("INFO over-capacity (esperado) tela=" + si + "(" + wa.Width + "x" + wa.Height + ") cenario=" + sc + " precisa " + need + " colunas, cabem " + maxCols);
+          // over-capacity: nao da pra evitar sobreposicao, mas o CANTO superior-direito (fechar/
+          // minimizar) de CADA janela tem que ser distinto -> nenhuma fica 100% coberta/inatingivel.
+          var corners = new HashSet<Point>();
+          for (int i = 0; i < wins.Count; i++) {
+            Point pt = map[wins[i].pid];
+            if (!corners.Add(new Point(pt.X + wins[i].w, pt.Y))) {
+              report.AppendLine("FALHA canto-coberto tela=" + si + " cenario=" + sc + " (2 janelas com o mesmo canto superior-direito)");
+              fails++;
+            }
+          }
+          report.AppendLine("INFO over-capacity (esperado, escada diagonal) tela=" + si + "(" + wa.Width + "x" + wa.Height + ") cenario=" + sc + " precisa " + need + " colunas, cabem " + maxCols);
         }
       }
     }
