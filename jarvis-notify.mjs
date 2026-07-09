@@ -41,6 +41,8 @@ const COOLDOWN = {
   files: 120_000,
   search: 60_000,
   subagent: 30_000,
+  qa: 20_000,        // agente de QA: ação deliberada, cooldown curto só p/ não duplicar
+  qa_ultra: 20_000,
   git: 30_000,
   credits: 300_000, // alerta importante, mas não repetir a cada requisição
   sessionend: 120_000,
@@ -119,6 +121,16 @@ if (cat === "notify") {
   if (/usage limit|rate limit|running low|credit|out of (tokens|usage)|limit (reached|approaching)/i.test(msg)) {
     cat = "credits";
   }
+}
+// Agente de QA: Agent/Task/Workflow chega como "fanout". Distingo o QA SIMPLES (1 inspetor,
+// subagente orna-qa) do QA PROFUNDO multi-agente (banca, workflow orna-qa-ultra) -> falas próprias.
+if (cat === "fanout") {
+  const tn = String(evt.tool_name || "");
+  const ti = evt.tool_input || {};
+  const hay = [ti.subagent_type, ti.name, ti.description, ti.script].map((x) => String(x || "")).join(" ").toLowerCase();
+  if (/qa[-_ ]?ultra|orna-qa-ultra/.test(hay)) cat = "qa_ultra";
+  else if (tn === "Workflow" && /\bqa\b|auditoria|orna-qa/.test(hay)) cat = "qa_ultra";
+  else if (/orna-qa\b/.test(hay) || ((tn === "Agent" || tn === "Task") && /\bqa\b/.test(hay))) cat = "qa";
 }
 // Prompt: se o Davi ativa o ULTRACODE (menciona a palavra), força total do Jarvis.
 if (cat === "prompt" && /\bultracode\b/i.test(String(evt.prompt || ""))) {

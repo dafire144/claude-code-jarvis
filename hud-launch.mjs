@@ -21,18 +21,24 @@ const evt = await readStdin();
 const tool = String(evt.tool_name || "");
 const inp = evt.tool_input || {};
 
-// decide se essa chamada merece um HUD
-let proto = "", agent = "", task = "", autoCloseSec = 0;
+// decide se essa chamada merece um HUD. kind marca telinhas TEMÁTICAS (agente de QA):
+// "qa" = inspeção simples (1 agente); "qa_ultra" = auditoria multi-agente (banca). O
+// FanoutHud lê kind e troca título + animação (lupa/grade vs banca/radar de varredura).
+let proto = "", agent = "", task = "", autoCloseSec = 0, kind = "";
 if (tool === "Agent" || tool === "Task") {
-  proto = inp.run_in_background ? "SUBAGENTE EM SEGUNDO PLANO" : "SUBAGENTE EM CAMPO";
   agent = String(inp.subagent_type || "general-purpose");
   task = String(inp.description || inp.prompt || "");
+  const isQA = /(^|[^a-z])qa([^a-z]|$)|orna-qa/i.test(agent) && !/ultra/i.test(agent);
+  if (isQA) { kind = "qa"; proto = "AUDITORIA DE QUALIDADE"; }
+  else proto = inp.run_in_background ? "SUBAGENTE EM SEGUNDO PLANO" : "SUBAGENTE EM CAMPO";
   if (inp.run_in_background) autoCloseSec = 90; // não temos sinal de fim; painel informativo
 } else if (tool === "Workflow") {
-  proto = "WORKFLOW MULTI-AGENTE";
   const script = String(inp.script || "");
   agent = String(inp.name || (script.match(/name:\s*'([^']+)'/) || [])[1] || "workflow");
   task = String((script.match(/description:\s*'([^']+)'/) || [])[1] || inp.name || "orquestracao de agentes");
+  const hay = (agent + " " + script).toLowerCase();
+  if (/qa[-_ ]?ultra|orna-qa-ultra/.test(hay) || /\bqa\b|auditoria/.test(hay)) { kind = "qa_ultra"; proto = "AUDITORIA PROFUNDA"; }
+  else proto = "WORKFLOW MULTI-AGENTE";
 } else if ((tool === "Bash" || tool === "PowerShell") && inp.run_in_background) {
   proto = "PROCESSO EM SEGUNDO PLANO";
   agent = tool.toLowerCase();
@@ -59,6 +65,7 @@ const mission = {
   status: "running",
   start: Date.now(),
   proto, agent, task,
+  kind: kind || undefined,
   model: String(inp.model || ""),
   autoCloseSec: autoCloseSec || undefined,
 };

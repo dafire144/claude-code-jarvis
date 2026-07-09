@@ -496,6 +496,32 @@ LINES.fable_off = [
 ];
 
 // ============================================================================
+// AGENTE DE QA (2026-07-09): controle de qualidade de software. Duas frentes com
+// voz própria. qa = INSPEÇÃO SIMPLES (um inspetor, subagente orna-qa). qa_ultra =
+// AUDITORIA PROFUNDA multi-agente (banca de auditores, workflow orna-qa-ultra,
+// verificação adversarial). O jarvis-notify detecta a ferramenta e escolhe a
+// categoria; o HUD (FanoutHud) tem animação própria pra cada uma. Rode gen-lines.mjs.
+// ============================================================================
+LINES.qa = [
+  "Lupa em punho, senhor. Nenhum detalhe passa despercebido.",
+  "Inspetor a caminho, senhor. Ele repara em tudo.",
+  "Pente-fino em andamento, Sr. Davi. Só aprovo o impecável.",
+  "Conferindo cada parafuso, senhor. Qualidade também se mede.",
+  "O inspetor entrou em campo, senhor. Discreto, porém minucioso.",
+  "A nota só sai depois da lupa, Sr. Davi.",
+  "Examinando com calma, senhor. Pressa não combina com excelência.",
+];
+LINES.qa_ultra = [
+  "Convocando a banca completa, senhor. Cada auditor com sua lente.",
+  "Escrutínio em todas as dimensões, Sr. Davi. Nada passa sem defesa.",
+  "Tribunal técnico em sessão, senhor. Todo achado será contestado antes de valer.",
+  "Auditores em paralelo, senhor. Um confere o trabalho do outro.",
+  "Rigor máximo, Sr. Davi. Até as conclusões passam por julgamento.",
+  "A banca está reunida, senhor. Só fica de pé o que for provado.",
+  "Inspeção profunda iniciada, senhor. Elegância no trato, severidade no veredito.",
+];
+
+// ============================================================================
 // AVISO DE ATUALIZAÇÃO (2026-07-07): o update-check.mjs consulta o VERSION no
 // GitHub 1x/dia; havendo versão nova, dispara esta categoria (voz + toast). Em
 // personagem: uma melhoria dos "sistemas do Jarvis", nada de mundo externo.

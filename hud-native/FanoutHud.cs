@@ -26,7 +26,7 @@ using WinTimer = System.Windows.Forms.Timer;
 
 class FanoutHud : Form {
   string file, dir;
-  string proto = "", agent = "", task = "", model = "", statusRaw = "running";
+  string proto = "", agent = "", task = "", model = "", statusRaw = "running", kind = "";
   long start = 0, doneAt = 0, tokens = 0;
   double costUsd = 0; int autoCloseSec = 0;
   bool done = false;
@@ -69,10 +69,14 @@ class FanoutHud : Form {
     Application.Run(new FanoutHud(missionFile, m));
   }
 
-  public static void Shot(string outPng) { Shot(outPng, false); }
-  public static void Shot(string outPng, bool asDone) {
+  public static void Shot(string outPng) { Shot(outPng, false, ""); }
+  public static void Shot(string outPng, bool asDone) { Shot(outPng, asDone, ""); }
+  public static void Shot(string outPng, bool asDone, string kindArg) {
     var f = new FanoutHud(null, null);
-    f.Seed(); if (asDone) f.SeedDone();
+    f.Seed(); f.kind = kindArg;
+    if (kindArg == "qa") { f.proto = "AUDITORIA DE QUALIDADE"; f.agent = "orna-qa"; f.task = "Inspecao de qualidade do modulo, antes da entrega ao senhor."; f.phase = 5.7; }
+    else if (kindArg == "qa_ultra") { f.proto = "AUDITORIA PROFUNDA"; f.agent = "orna-qa-ultra"; f.task = "Auditoria multiagente do dock: correcao, concorrencia e paridade."; f.phase = 2.2; }
+    if (asDone) f.SeedDone();
     var bmp = new Bitmap(W, H);
     using (var g = Graphics.FromImage(bmp)) f.Render(g);
     bmp.Save(outPng, System.Drawing.Imaging.ImageFormat.Png);
@@ -128,6 +132,7 @@ class FanoutHud : Form {
       if (file == null || !File.Exists(file)) return;
       string s = File.ReadAllText(file);
       proto = Grp(s, "\"proto\":\"([^\"]*)\"");
+      kind = Grp(s, "\"kind\":\"([^\"]*)\"");   // "qa" (inspecao simples) | "qa_ultra" (auditoria multi-agente) | ""
       agent = Grp(s, "\"agent\":\"([^\"]*)\"");
       task = Unescape(Grp(s, "\"task\":\"([^\"]*)\""));
       model = Grp(s, "\"model\":\"([^\"]*)\"");
@@ -226,14 +231,19 @@ class FanoutHud : Form {
       if (money.Length > 0) extra = extra.Length > 0 ? extra + "  " + money : money;
       if (extra.Length > 0) g.DrawString(extra, fTiny, B(AmberMut), px + 1, 166);
     } else {
-      g.DrawString("o enxame trabalha, senhor", fTiny, B(AmberDeep), px + 1, 166);
+      string sub = kind == "qa_ultra" ? "a banca audita, senhor" : kind == "qa" ? "o inspetor examina, senhor" : "o enxame trabalha, senhor";
+      g.DrawString(sub, fTiny, B(AmberDeep), px + 1, 166);
     }
     g.DrawImage(Cine.Overlay(W, H), new Rectangle(0, 0, W, H));   // vidro do painel (scanlines + vinheta)
   }
 
   // ENXAME: nucleo orquestrador + 2 aneis de agentes orbitando + conexoes pulsando.
-  // So transform/opacity; repintado no loop de 66ms recortado ao swarmRect.
+  // So transform/opacity; repintado no loop de 33ms recortado ao swarmRect.
+  // Para o AGENTE DE QA a arte muda: banca de auditores sob varredura de radar (qa_ultra) ou
+  // um inspetor de lupa passando uma grade de codigo (qa) -- animacoes proprias da auditoria.
   void DrawSwarm(Graphics g, float cx, float cy) {
+    if (kind == "qa_ultra") { DrawAuditSwarm(g, cx, cy); return; }
+    if (kind == "qa") { DrawInspector(g, cx, cy); return; }
     bool live = !done;
     // aneis-guia faint
     using (var p = new Pen(Color.FromArgb(30, BorderC), 1f)) { g.DrawEllipse(p, cx - 20, cy - 20, 40, 40); g.DrawEllipse(p, cx - 34, cy - 34, 68, 68); }
@@ -269,7 +279,85 @@ class FanoutHud : Form {
     }
   }
 
+  // ---- AGENTE DE QA: animacoes proprias ----
+  // qa_ultra: BANCA DE AUDITORES (aneis de nos) sob uma VARREDURA DE RADAR girando.
+  void DrawAuditSwarm(Graphics g, float cx, float cy) {
+    bool live = !done;
+    using (var p = new Pen(Color.FromArgb(30, BorderC), 1f)) { g.DrawEllipse(p, cx - 20, cy - 20, 40, 40); g.DrawEllipse(p, cx - 34, cy - 34, 68, 68); }
+    float a = (float)(phase * 12.0);
+    DrawRing(g, cx, cy, 20f, a, 0f, 3, live);
+    DrawRing(g, cx, cy, 34f, -a * 0.8f, 60f, 3, live);
+    float pr = 6f + (live ? 1.4f * (float)Math.Sin(phase * 2.3) : 0f);   // nucleo: o sintetizador-chefe
+    using (var gl = new SolidBrush(Color.FromArgb(80, AmberBright))) g.FillEllipse(gl, cx - pr - 5, cy - pr - 5, 2 * pr + 10, 2 * pr + 10);
+    using (var b = new SolidBrush(done ? Online : Amber)) g.FillEllipse(b, cx - pr, cy - pr, 2 * pr, 2 * pr);
+    using (var b = new SolidBrush(Color.FromArgb(255, 255, 246, 224))) g.FillEllipse(b, cx - 2.4f, cy - 2.4f, 4.8f, 4.8f);
+    if (live) DrawRadarSweep(g, cx, cy, 40f);
+    else DrawCheck(g, cx, cy, 9f, Online);   // auditoria concluida: selo de aprovacao no centro
+  }
+
+  // feixe de radar: cunha translucida atras + linha brilhante na borda de ataque, girando
+  void DrawRadarSweep(Graphics g, float cx, float cy, float R) {
+    double sweep = (phase * 1.4) % (2 * Math.PI); if (sweep < 0) sweep += 2 * Math.PI;
+    float deg = (float)(sweep * 180.0 / Math.PI);
+    using (var gp = new GraphicsPath()) {
+      gp.AddPie(cx - R, cy - R, 2 * R, 2 * R, deg - 44, 44);
+      using (var pgb = new PathGradientBrush(gp)) {
+        pgb.CenterPoint = new PointF(cx, cy);
+        pgb.CenterColor = Color.FromArgb(78, AmberBright);
+        pgb.SurroundColors = new Color[] { Color.FromArgb(0, Amber) };
+        try { g.FillPath(pgb, gp); } catch {}
+      }
+    }
+    float ex = cx + (float)(Math.Cos(sweep) * R), ey = cy + (float)(Math.Sin(sweep) * R);
+    using (var pen = new Pen(Color.FromArgb(210, 255, 246, 224), 1.6f)) { pen.StartCap = LineCap.Round; pen.EndCap = LineCap.Round; g.DrawLine(pen, cx, cy, ex, ey); }
+    using (var b = new SolidBrush(Color.FromArgb(230, AmberBright))) g.FillEllipse(b, ex - 2f, ey - 2f, 4f, 4f);
+  }
+
+  // qa: INSPETOR — uma lupa percorre uma grade de "celulas de codigo"; cada uma vira ✓ ao ser aferida.
+  void DrawInspector(Graphics g, float cx, float cy) {
+    int cols = 4, rows = 3; float cell = 15f, gap = 5f;
+    float gw = cols * cell + (cols - 1) * gap, gh = rows * cell + (rows - 1) * gap;
+    float gx = cx - gw / 2f, gy = cy - gh / 2f;
+    int total = cols * rows;
+    long step = (long)Math.Floor(phase * 0.7);
+    int scanned = done ? total : (int)(step % (total + 4));   // percorre as celulas, pausa "tudo ok", reinicia
+    if (scanned > total) scanned = total;
+    for (int r = 0; r < rows; r++) {
+      for (int c = 0; c < cols; c++) {
+        int idx = r * cols + c;
+        float x = gx + c * (cell + gap), y = gy + r * (cell + gap);
+        bool ok = idx < scanned;
+        Color cc = ok ? Online : AmberDeep;
+        using (var b = new SolidBrush(Color.FromArgb(ok ? 40 : 20, cc))) g.FillRectangle(b, x, y, cell, cell);
+        using (var pen = new Pen(Color.FromArgb(ok ? 170 : 70, cc), 1f)) g.DrawRectangle(pen, x, y, cell, cell);
+        if (ok) DrawCheck(g, x + cell / 2f, y + cell / 2f, cell * 0.42f, Online);
+      }
+    }
+    if (done) DrawLens(g, gx + gw + 4f, gy + gh + 2f);                 // concluido: lupa recolhida
+    else { int cur = scanned < total ? scanned : total - 1; DrawLens(g, gx + (cur % cols) * (cell + gap) + cell / 2f, gy + (cur / cols) * (cell + gap) + cell / 2f); }
+  }
+
+  // lupa: halo + lente translucida + aro + cabo
+  void DrawLens(Graphics g, float lx, float ly) {
+    float lr = 10.5f;
+    using (var gl = new SolidBrush(Color.FromArgb(60, AmberBright))) g.FillEllipse(gl, lx - lr - 2, ly - lr - 2, 2 * lr + 4, 2 * lr + 4);
+    using (var glass = new SolidBrush(Color.FromArgb(30, 255, 246, 224))) g.FillEllipse(glass, lx - lr, ly - lr, 2 * lr, 2 * lr);
+    using (var pen = new Pen(Color.FromArgb(235, AmberBright), 2f)) g.DrawEllipse(pen, lx - lr, ly - lr, 2 * lr, 2 * lr);
+    using (var pen = new Pen(Color.FromArgb(235, AmberMut), 2.4f)) { pen.StartCap = LineCap.Round; pen.EndCap = LineCap.Round; double ang = 0.85; g.DrawLine(pen, lx + (float)(Math.Cos(ang) * lr), ly + (float)(Math.Sin(ang) * lr), lx + (float)(Math.Cos(ang) * (lr + 7)), ly + (float)(Math.Sin(ang) * (lr + 7))); }
+  }
+
+  // check-mark desenhado com 2 tracos (usado na grade e no selo final)
+  void DrawCheck(Graphics g, float cx, float cy, float r, Color col) {
+    using (var pen = new Pen(col, Math.Max(1.4f, r * 0.28f))) {
+      pen.StartCap = LineCap.Round; pen.EndCap = LineCap.Round; pen.LineJoin = LineJoin.Round;
+      var pts = new PointF[] { new PointF(cx - r * 0.75f, cy + r * 0.05f), new PointF(cx - r * 0.15f, cy + r * 0.65f), new PointF(cx + r * 0.8f, cy - r * 0.7f) };
+      g.DrawLines(pen, pts);
+    }
+  }
+
   string Title() {
+    if (kind == "qa_ultra") return "AUDITORIA PROFUNDA";
+    if (kind == "qa") return "INSPECAO DE QUALIDADE";
     string p = proto.ToUpperInvariant();
     if (p.IndexOf("WORKFLOW") >= 0) return "PROTOCOLO CASA DE FESTAS";
     if (p.IndexOf("PROCESSO") >= 0) return "PROCESSO AUTONOMO";

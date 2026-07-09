@@ -144,7 +144,11 @@ class JarvisHudWF : Form {
     if (args.Length >= 2 && args[0] == "--shot-mini") { ShotMini(args[1], args.Length > 2 && args[2] == "fable"); return; }
     if (args.Length >= 3 && args[0] == "--shot-shut") { ShotShut(args[1], double.Parse(args[2], CultureInfo.InvariantCulture)); return; }
     if (args.Length >= 3 && args[0] == "--shot-boot") { ShotBoot(args[1], double.Parse(args[2], CultureInfo.InvariantCulture), args.Length > 3 && args[3] == "fable"); return; }
-    if (args.Length >= 2 && args[0] == "--fanout-shot") { FanoutHud.Shot(args[1], args.Length > 2 && args[2] == "done"); return; }
+    if (args.Length >= 2 && args[0] == "--fanout-shot") {   // [done] [qa|qa_ultra] em qualquer ordem
+      bool fdone = false; string fkind = "";
+      for (int i = 2; i < args.Length; i++) { if (args[i] == "done") fdone = true; else if (args[i] == "qa" || args[i] == "qa_ultra") fkind = args[i]; }
+      FanoutHud.Shot(args[1], fdone, fkind); return;
+    }
     if (args.Length >= 2 && args[0] == "--fanout") { FanoutHud.Run(args[1]); return; }   // telinha de fan-out (substitui o CMD)
     string sid = args.Length > 0 ? args[0] : "global";
     bool made; var m = new Mutex(true, "JarvisHud_" + Sanitize(sid), out made);
