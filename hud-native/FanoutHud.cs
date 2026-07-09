@@ -5,8 +5,12 @@
 //   { status, start, proto, agent, task, model, autoCloseSec, doneAt, cost_usd, tokens }
 // Mostra o "enxame" trabalhando: nucleo orquestrador + agentes orbitando + conexoes
 // pulsando, protocolo, agente, missao, cronometro e (ao concluir) tempo/tokens/custo R$.
-// PERFORMANCE: anima ~15fps SO enquanto rodando e SO repinta a area do enxame
+// PERFORMANCE: anima a 30fps SO enquanto rodando e SO repinta a area do enxame
 // (Invalidate(swarmRect)); dados relidos 1x/s. So transform/opacity no loop -> CPU baixo.
+// Timer de ALTA RESOLUCAO (timeBeginPeriod(1)) durante a vida da janela: sem isso o
+// WinForms.Timer so entrega quadros em multiplos de ~15.6ms (era o "travado" a 15fps). A
+// fase anda pelo RELOGIO (nao por incremento) -> velocidade estavel em qualquer fps, sem
+// saltos se um tick atrasar. Mesmas 3 tecnicas do HUD principal (JarvisHudWF.cs).
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -32,6 +36,9 @@ class FanoutHud : Form {
   int pid; bool userMoved, movedDuringDrag;   // arrasto manual tira a janela do auto-layout
   WinTimer dataTimer, animTimer;
   Mutex mutex;
+  bool periodSet;
+  [System.Runtime.InteropServices.DllImport("winmm.dll")] static extern uint timeBeginPeriod(uint p);
+  [System.Runtime.InteropServices.DllImport("winmm.dll")] static extern uint timeEndPeriod(uint p);
 
   static Color Ink1 = C("#121F17"), Ink2 = C("#070E09");
   static Color Amber = C("#E8B24A"), AmberBright = C("#F4C25C"), AmberMut = C("#BE9E6C"), AmberDeep = C("#8A6A2E");
@@ -89,6 +96,11 @@ class FanoutHud : Form {
 
     if (m == null) return;   // modo --fanout-shot: sem timers/posicao
 
+    // timer de ALTA RESOLUCAO durante a vida da janela (mesmo motivo do HUD principal): sem
+    // isso o WinForms.Timer so entrega quadros em multiplos de ~15.6ms -> era o jitter que
+    // travava o enxame a 15fps. Com 1ms, o passo de 33ms sai regular e liso. Devolvido no close.
+    try { timeBeginPeriod(1); periodSet = true; } catch {}
+
     pid = System.Diagnostics.Process.GetCurrentProcess().Id;
     Location = HudLayout.Place(pid, bornMs, W, H, false, false);
     ReadMission();
@@ -97,8 +109,10 @@ class FanoutHud : Form {
     dataTimer.Tick += delegate { DataTick(); };
     dataTimer.Start();
 
-    animTimer = new WinTimer(); animTimer.Interval = 66;
-    animTimer.Tick += delegate { phase += 0.14; Invalidate(swarmRect); };
+    animTimer = new WinTimer(); animTimer.Interval = 33;   // 30fps: divisor exato de 60Hz -> sem judder
+    // fase pelo RELOGIO (nao por incremento): velocidade estavel em qualquer fps, sem "saltos"
+    // se um tick atrasar. Divisor 471 preserva a cadencia anterior (0.14/66ms ~= 2.1 voltas/s).
+    animTimer.Tick += delegate { phase = (NowMs() - bornMs) / 471.0; Invalidate(swarmRect); };
     if (!done) animTimer.Start();
   }
 
@@ -326,5 +340,5 @@ class FanoutHud : Form {
     base.OnMouseMove(e);
   }
   protected override void OnMouseUp(MouseEventArgs e) { if (dragging) { dragging = false; if (movedDuringDrag) { userMoved = true; HudLayout.Release(pid); } movedDuringDrag = false; } base.OnMouseUp(e); }
-  protected override void OnFormClosed(FormClosedEventArgs e) { try { HudLayout.Release(pid); } catch {} try { if (mutex != null) mutex.ReleaseMutex(); } catch {} base.OnFormClosed(e); }
+  protected override void OnFormClosed(FormClosedEventArgs e) { try { if (periodSet) { timeEndPeriod(1); periodSet = false; } } catch {} try { HudLayout.Release(pid); } catch {} try { if (mutex != null) mutex.ReleaseMutex(); } catch {} base.OnFormClosed(e); }
 }
