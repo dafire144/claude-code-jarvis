@@ -211,6 +211,43 @@ static class HudLayout {
     return false;
   }
 
+  // ---- "RECOLHER TUDO": marcador compartilhado. Presente => TODAS as telinhas se escondem;
+  // a de MENOR pid vira a PASTILHA "mostrar" no canto e as outras somem pra fora da tela. ----
+  static string HideAllPath() { return Path.Combine(Dir(), ".hideall"); }
+  public static void SetHideAll() { try { File.WriteAllText(HideAllPath(), Now().ToString()); } catch {} }
+  public static void ClearHideAll() { try { string f = HideAllPath(); if (File.Exists(f)) File.Delete(f); } catch {} }
+  public static bool IsHideAll() { try { return File.Exists(HideAllPath()); } catch { return false; } }
+  // ESTE pid e a pastilha? (menor pid entre as telinhas VIVAS). count = quantas telinhas vivas.
+  public static bool AmHandle(int pid, out int count) {
+    count = 0; int minPid = pid; long now = Now(); bool meSeen = false;
+    try {
+      foreach (var f in Directory.GetFiles(Dir(), "*.slot")) {
+        string nm = Path.GetFileNameWithoutExtension(f);
+        int opid; if (!int.TryParse(nm, out opid)) continue;
+        try { string[] p = File.ReadAllText(f).Split('|'); long ohb; if (p.Length < 3 || !long.TryParse(p[2], out ohb) || now - ohb > STALE) continue; } catch { continue; }
+        count++; if (opid == pid) meSeen = true; if (opid < minPid) minPid = opid;
+      }
+    } catch {}
+    if (!meSeen) count++;                 // meu slot pode nao estar no disco neste exato instante
+    if (count < 1) count = 1;
+    return pid <= minPid;                 // sou o menor -> a pastilha
+  }
+  // canto do dock (topo-direito) respeitando o hud-dock.cfg; e a posicao "escondida" fora da tela.
+  public static Point DockCorner(int w) { LoadCfg(); var wa = Screen.PrimaryScreen.WorkingArea; return new Point(wa.Right - MARGIN - w, wa.Top + TOPGAP); }
+  public static Point OffScreen(int y) { var wa = Screen.PrimaryScreen.WorkingArea; return new Point(wa.Right + 300, y); }
+  // ha OUTRA telinha viva alem desta? (p/ limpar o marcador quando a ultima fecha)
+  public static bool AnyOtherLive(int pid) {
+    long now = Now();
+    try {
+      foreach (var f in Directory.GetFiles(Dir(), "*.slot")) {
+        string nm = Path.GetFileNameWithoutExtension(f);
+        int opid; if (!int.TryParse(nm, out opid) || opid == pid) continue;
+        try { string[] p = File.ReadAllText(f).Split('|'); long ohb; if (p.Length >= 3 && long.TryParse(p[2], out ohb) && now - ohb <= STALE) return true; } catch {}
+      }
+    } catch {}
+    return false;
+  }
+
   // ---- AUTO-TESTE do invariante "zero sobreposicao / nada fora da tela" (jarvis-hud-wf.exe --layout-test) ----
   // Enumera cenarios (minis 182x54, cheias 380x300, casa-de-festas 342x190) em varias combinacoes
   // e telas, empacota com Pack e checa: nenhum par de janelas se sobrepoe e nenhuma sai da area util.

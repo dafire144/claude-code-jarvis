@@ -84,7 +84,13 @@ class JarvisHudWF : Form {
   Rectangle morphStartRect, morphDestRect;   // sanfona: a janela voa de start->dest (reservando a pegada cheia)
   Bitmap fullShot = null, miniShotBmp = null, miniBg = null; bool miniBgDirty = true;
   static Rectangle minRect = new Rectangle(W - 45, 8, 16, 18);              // botao minimizar (cheio)
+  static Rectangle hideAllRect = new Rectangle(W - 66, 8, 16, 18);          // RECOLHER TUDO (cheio), a esquerda do minimizar
   static Rectangle miniCloseRect = new Rectangle(MINI_W - 16, 5, 11, 11);   // fechar (mini)
+  static Rectangle miniHideRect = new Rectangle(MINI_W - 31, 5, 12, 12);    // recolher tudo (mini), a esquerda do fechar
+  // ---- RECOLHER TUDO: um marcador compartilhado esconde TODAS as telinhas; a de menor pid vira
+  // a PASTILHA "mostrar" no canto (clique traz todas de volta), as outras somem pra fora da tela.
+  int hiddenMode = 0, hideCount = 0;   // 0=normal · 1=parqueada fora da tela · 2=pastilha
+  const int HANDLE_W = 66, HANDLE_H = 30;
   [System.Runtime.InteropServices.DllImport("winmm.dll")] static extern uint timeBeginPeriod(uint p);
   [System.Runtime.InteropServices.DllImport("winmm.dll")] static extern uint timeEndPeriod(uint p);
 
@@ -284,6 +290,8 @@ class JarvisHudWF : Form {
         if (mt >= 1) { EndMorph(); return; }
         ApplyMorphBounds(mt); Invalidate(); return;
       }
+      if (hiddenMode == 1) return;                    // parqueada fora da tela: nada
+      if (hiddenMode == 2) { phase = (NowMs() - bornMs) / 500.0; Invalidate(); return; }   // pastilha "mostrar" anima
       // fase pelo RELOGIO (nao por incremento): velocidade estavel em qualquer fps,
       // sem "saltos" se um tick atrasar -- os satelites do Fable denunciavam (07/07)
       phase = (NowMs() - bornMs) / 500.0;
@@ -341,8 +349,57 @@ class JarvisHudWF : Form {
     // Durante o BOOT a janela DEVE reflowar normal: a ignicao so pinta, nao dona a posicao; congela-la
     // deixava uma vizinha expandir POR CIMA dela por ate ~1,4s (regressao pega na re-auditoria).
     if (dragging || morphing) { HudLayout.Touch(pid); return; }
+    if (HudLayout.IsHideAll()) { ApplyHidden(); return; }   // modo "recolher tudo": esconde ou vira pastilha
+    if (hiddenMode != 0) LeaveHidden();                     // saiu do modo -> volta ao dock normal
     var np = HudLayout.Place(pid, bornMs, CurW(), CurH(), false, minimized);
     if (np != Location) Location = np;
+  }
+
+  // "recolher tudo": a telinha de MENOR pid vira a pastilha no canto; as demais somem pra fora da tela.
+  void ApplyHidden() {
+    int cnt; bool handle = HudLayout.AmHandle(pid, out cnt);
+    HudLayout.Touch(pid);                                   // mantem o slot vivo (senao a contagem/menor-pid quebra)
+    if (handle) {
+      if (hiddenMode != 2) {
+        hiddenMode = 2;
+        var c = HudLayout.DockCorner(HANDLE_W);
+        try { SetBounds(c.X, c.Y, HANDLE_W, HANDLE_H); using (var gp = RoundedPath(0, 0, HANDLE_W, HANDLE_H, HANDLE_H / 2f)) Region = new Region(gp); } catch {}
+        hideCount = cnt; Invalidate();
+      } else if (hideCount != cnt) { hideCount = cnt; Invalidate(); }
+    } else if (hiddenMode != 1) {
+      hiddenMode = 1; try { Location = HudLayout.OffScreen(Location.Y); } catch {}
+    }
+  }
+  void LeaveHidden() {
+    hiddenMode = 0;
+    int w = CurW(), h = CurH();
+    var np = HudLayout.Place(pid, bornMs, w, h, false, minimized);
+    try { SetBounds(np.X, np.Y, w, h); using (var gp = RoundedPath(0, 0, w, h, RegionRad(h))) Region = new Region(gp); } catch {}
+    bgDirty = true; miniBgDirty = true; Invalidate();
+  }
+
+  // PASTILHA "mostrar": reator pip pulsando + contagem de telinhas guardadas + chevron de expandir.
+  void PaintHandle(Graphics g) {
+    g.SmoothingMode = SmoothingMode.AntiAlias; g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+    var rect = new Rectangle(0, 0, HANDLE_W, HANDLE_H);
+    using (var bg = new LinearGradientBrush(rect, HC(Ink1, InkF1), HC(Ink2, InkF2), 60f)) using (var gp = RoundedPath(0, 0, HANDLE_W, HANDLE_H, HANDLE_H / 2f)) g.FillPath(bg, gp);
+    using (var gp = RoundedPath(0.7f, 0.7f, HANDLE_W - 1.4f, HANDLE_H - 1.4f, (HANDLE_H - 1.4f) / 2f)) using (var pen = new Pen(Color.FromArgb(215, HC(BorderC, MythGold)), 1.3f)) g.DrawPath(pen, gp);
+    float cx = 16, cy = HANDLE_H / 2f; double pulse = 0.5 + 0.5 * Math.Sin(phase * 2.2);
+    using (var gl = new SolidBrush(Color.FromArgb((int)(52 + 40 * pulse), HC(AmberBright, MythPale)))) g.FillEllipse(gl, cx - 8, cy - 8, 16, 16);
+    using (var b = new SolidBrush(HC(Amber, MythGold))) g.FillEllipse(b, cx - 2.7f, cy - 2.7f, 5.4f, 5.4f);
+    using (var b = new SolidBrush(Color.FromArgb(255, 255, 248, 232))) g.FillEllipse(b, cx - 1.3f, cy - 1.3f, 2.6f, 2.6f);
+    g.DrawString(hideCount.ToString(), fBig2, B(HC(Amber, MythGold)), 27, cy - 10);
+    using (var pen = new Pen(HC(AmberMut, Ember), 1.7f)) { pen.StartCap = LineCap.Round; pen.EndCap = LineCap.Round; float hx = HANDLE_W - 18; g.DrawLine(pen, hx, cy - 3, hx + 5, cy + 2); g.DrawLine(pen, hx + 5, cy + 2, hx + 10, cy - 3); }
+    g.DrawImage(Cine.Overlay(HANDLE_W, HANDLE_H), rect);
+  }
+  // glifo "recolher tudo": dois chevrons pra baixo empilhados (colapsar tudo pro canto)
+  void DrawHideAllGlyph(Graphics g, Rectangle r) {
+    using (var hp = new Pen(AmberMut, 1.6f)) {
+      hp.StartCap = LineCap.Round; hp.EndCap = LineCap.Round;
+      float bx = r.X + 3, by = r.Y + 5;
+      g.DrawLine(hp, bx, by, bx + 5, by + 4); g.DrawLine(hp, bx + 5, by + 4, bx + 10, by);
+      g.DrawLine(hp, bx, by + 5, bx + 5, by + 9); g.DrawLine(hp, bx + 5, by + 9, bx + 10, by + 5);
+    }
   }
 
   void DataTick() {
@@ -522,6 +579,8 @@ class JarvisHudWF : Form {
 
   protected override void OnPaint(PaintEventArgs e) {
     try {
+      if (hiddenMode == 1) return;                        // parqueada fora da tela: nem pinta
+      if (hiddenMode == 2) { PaintHandle(e.Graphics); return; }   // pastilha "mostrar" no canto
       if (closing) { PaintShutdown(e.Graphics); return; }
       if (booting) { PaintBoot(e.Graphics); return; }
       if (morphing) { PaintMorph(e.Graphics); return; }   // colapso/expansao da mini-capsula
@@ -683,11 +742,12 @@ class JarvisHudWF : Form {
     float tx = 54;
     Color sc = status == "OPERANDO" ? HC(Amber, Ember) : status == "ENCERRADO" ? Faint : Online;
     string t1 = string.IsNullOrEmpty(title) ? "J.A.R.V.I.S." : title;
-    g.DrawString(Fit(g, t1, fSess, MINI_W - tx - 20), fSess, B(HC(Amber, MythGold)), tx, 8);
+    g.DrawString(Fit(g, t1, fSess, MINI_W - tx - 36), fSess, B(HC(Amber, MythGold)), tx, 8);   // recuado p/ os 2 botoes
     string t2 = (heat >= 0.5 && status == "OPERANDO" ? "PLENA CARGA" : status) + "  " + Elapsed();
     g.DrawString(Fit(g, t2, fTiny, MINI_W - tx - 14), fTiny, B(sc), tx, 27);
-    // no mini, o Fable ja se anuncia pela paleta superaquecida + "PLENA CARGA" (badge sobreporia o titulo)
-    g.DrawString("x", fTiny, B(Faint), miniCloseRect.X + 1, miniCloseRect.Y - 2);
+    // botoes RECOLHER TUDO (chevron duplo) + FECHAR (x) no topo-direito da capsula
+    DrawHideAllGlyph(g, miniHideRect);
+    g.DrawString("x", fTiny, B(AmberMut), miniCloseRect.X + 1, miniCloseRect.Y - 2);
     g.DrawImage(Cine.Overlay(MINI_W, MINI_H), rect);
   }
 
@@ -927,7 +987,7 @@ class JarvisHudWF : Form {
     Color sc = status == "OPERANDO" ? HC(Amber, Ember) : status == "ENCERRADO" ? Faint : Online;
     string stxt = (heat >= 0.5 && status == "OPERANDO") ? "PLENA CARGA" : status;
     float sw = g.MeasureString(stxt, fStat).Width;
-    float sx = W - 56 - sw;                                          // recuado p/ abrir espaco aos 2 botoes
+    float sx = W - 78 - sw;                                          // recuado p/ abrir espaco aos 3 botoes (recolher/minimizar/fechar)
     using (var pillP = RoundedPath(sx - 18, 12, sw + 24, 14, 7)) {   // capsula do status
       using (var pf = new SolidBrush(Color.FromArgb(26, sc))) g.FillPath(pf, pillP);
       using (var pp = new Pen(Color.FromArgb(70, sc), 1f)) g.DrawPath(pp, pillP);
@@ -936,7 +996,8 @@ class JarvisHudWF : Form {
     using (var hb2 = new SolidBrush(Color.FromArgb((int)(40 + 55 * dk), sc))) g.FillEllipse(hb2, sx - 14, 13, 11, 11);
     using (var b = new SolidBrush(sc)) g.FillEllipse(b, sx - 12, 15, 7, 7);
     g.DrawString(stxt, fStat, B(sc), sx, 12);
-    // ---- botoes MINIMIZAR (–) e FECHAR (x), no canto sup-direito, em ambar visivel ----
+    // ---- botoes RECOLHER TUDO (chevron duplo), MINIMIZAR (–) e FECHAR (x), em ambar visivel ----
+    DrawHideAllGlyph(g, hideAllRect);
     using (var mp = new Pen(AmberMut, 2f)) { mp.StartCap = LineCap.Round; mp.EndCap = LineCap.Round; g.DrawLine(mp, minRect.X + 3, minRect.Y + 9, minRect.X + 13, minRect.Y + 9); }
     g.DrawString("x", fClose, B(AmberMut), closeRect.X + 2, closeRect.Y - 3);
 
@@ -1323,13 +1384,16 @@ class JarvisHudWF : Form {
   // ------- interacao -------
   protected override void OnMouseDown(MouseEventArgs e) {
     if (e.Button == MouseButtons.Left) {
+      if (hiddenMode == 2) { HudLayout.ClearHideAll(); return; }   // clique na pastilha -> mostra TODAS de volta
       if (morphing || booting || closing) return;            // durante morph/ignicao/desligamento, ignora cliques (senao o morph inicia mas fica congelado sob o boot, e sobra slot orfao no shutdown)
       if (minimized) {
         if (miniCloseRect.Contains(e.Location)) { try { File.WriteAllText(Path.Combine(dir, "closed"), "1"); } catch {} Close(); return; }
+        if (miniHideRect.Contains(e.Location)) { HudLayout.SetHideAll(); return; }   // recolher tudo
         dragging = true; dragStart = e.Location;              // clique simples restaura (decidido no MouseUp)
         base.OnMouseDown(e); return;
       }
       if (closeRect.Contains(e.Location)) { try { File.WriteAllText(Path.Combine(dir, "closed"), "1"); } catch {} Close(); return; }
+      if (hideAllRect.Contains(e.Location)) { HudLayout.SetHideAll(); return; }   // recolher tudo
       if (minRect.Contains(e.Location)) { BeginMorph(true); return; }   // minimizar
       dragging = true; dragStart = e.Location;
     }
@@ -1355,6 +1419,7 @@ class JarvisHudWF : Form {
     try { if (fullShot != null) { fullShot.Dispose(); fullShot = null; } } catch {}
     try { if (miniShotBmp != null) { miniShotBmp.Dispose(); miniShotBmp = null; } } catch {}
     try { HudLayout.Release(pid); } catch {}
+    try { if (!HudLayout.AnyOtherLive(pid)) HudLayout.ClearHideAll(); } catch {}   // ultima a fechar limpa o marcador (nao deixa novas telinhas nascerem escondidas)
     try { if (mutex != null) mutex.ReleaseMutex(); } catch {}
     base.OnFormClosed(e);
   }
