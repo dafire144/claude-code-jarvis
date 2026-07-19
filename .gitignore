@@ -15,6 +15,10 @@ secrets*.json
 .last-play
 .usage-state.json
 .usdbrl.json
+.update-state.json
+.last-doctor.json
+.mute
+quiet.cfg
 *.log
 
 # --- Pastas de trabalho geradas ---

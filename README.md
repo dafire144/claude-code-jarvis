@@ -19,7 +19,7 @@
   <br /><em>Minimized: the whole panel folds into a live reactor capsule — click to expand.</em>
 </p>
 
-It hooks into Claude Code's event system (no polling, no cost) and reacts with pre-recorded lines: *"Positivo, senhor. Iniciando o trabalho."* when you send a prompt, *"Tarefa concluída, senhor."* when it finishes, energetic lines when you tell it to floor it, a gentle nudge at 3 a.m., and so on — **334 lines across 37 categories**, chosen by intent.
+It hooks into Claude Code's event system (no polling, no cost) and reacts with pre-recorded lines: *"Positivo, senhor. Iniciando o trabalho."* when you send a prompt, *"Tarefa concluída, senhor."* when it finishes, energetic lines when you tell it to floor it, a gentle nudge at 3 a.m., and so on — **363 lines across 43 categories**, chosen by intent.
 
 > The voice is a **Brazilian-Portuguese butler** (think Iron Man's JARVIS, but he calls you *"senhor"*). Fully pre-recorded, so playback is instant and free.
 
@@ -38,6 +38,9 @@ It hooks into Claude Code's event system (no polling, no cost) and reacts with p
 - **Cinematic power-down** — when a task ends the HUD **cools down** (amber → steel-blue, every element recoloring, with brief CRT **glitch slices** where the warm colors fight back), **collapses like an old CRT**, and blinks out.
 - **FABLE 5 overdrive mode** — when a session runs Anthropic's most powerful model (Claude Fable 5), the whole HUD goes into **overheat**: heated background, border pulsing between gold and ember, white-hot reactor core with 16 rays and 3 orbiting satellites, molten metrics, a shimmering **"✦ FABLE 5"** badge and a *"PLENA CARGA"* status — plus **28 dedicated voice lines**, delivered fully in character: Jarvis treats Fable 5 as his own **hidden full-power protocol**, unlocked only for top-priority work (*"Protocolo Fable 5 autorizado, senhor. Desviando toda a energia do reator para o senhor."*). Switching models mid-session triggers a **cinematic transition** both ways: a shockwave sweeps the HUD and a **physical jolt shakes the panel** while every element heats up (or cools down, steel-blue, back to normal), with an in-character voice line to match. Detection is instant — the desktop app's session file is read directly, with status-line and transcript-sniffing fallbacks.
 - **Status line** — an optional Claude Code status line with model, folder, branch, live cost and clock (it also powers the Fable 5 detection, and marks the model with a golden ✦ when Fable is running).
+- **Silence Protocol** — tell him *"silêncio"* in the chat and he confirms once, then goes quiet (*"Protocolo Silêncio ativado, senhor."*); say *"pode falar"* and the voice returns. Accepts durations (*"silêncio por 30 minutos"*, *"até segunda ordem"*), works from the CLI too (`node jarvis.mjs mute 2h`), and supports **daily quiet hours** (`node jarvis.mjs quiet 22-07`). Critical reserve alerts still get through — a butler knows when to break protocol.
+- **Self-diagnosis** — `node doctor.mjs` sweeps the whole install (hooks wired? clips missing? state corrupted? toast identity registered? new version out?) and prints a report with a fix hint per finding; `--fix` repairs the safe ones, `--json` feeds your own Claude Code.
+- **A cockpit** — `node jarvis.mjs` shows the whole system at a glance (version, voice state, library, live sessions, pending update) and fronts every command: `doctor`, `mute`/`unmute`, `quiet`, `test <category>` (hear any line on demand), `lines`, `update`.
 
 ## Platform support
 
@@ -49,6 +52,7 @@ It hooks into Claude Code's event system (no polling, no cost) and reacts with p
 | Live desktop HUD + ignition / power-down cinematics | yes (native) | yes (Electron) |
 | FABLE 5 overdrive (HUD + voice) | yes | yes |
 | Status line | yes | yes |
+| Silence Protocol + CLI cockpit + doctor | yes | yes |
 
 The desktop HUD ships two ways for the best of both worlds: a lightweight **native WinForms/GDI+** app on Windows, and a **cross-platform Electron** build on macOS — same reactor core, telemetry feed and cinematic power-down. Everyone gets the same experience.
 
@@ -68,16 +72,15 @@ No API keys. No servers. No paid dependencies.
    ```
    *(Any folder works; `~/.claude/jarvis` is just tidy. On Windows that's `C:\Users\<you>\.claude\jarvis`.)*
 
-2. **Wire the hooks** — open [`settings.example.json`](settings.example.json), copy the `"hooks"` block into your `~/.claude/settings.json` (merge if you already have hooks), and replace `__JARVIS_DIR__` with the **absolute path** to this folder (use forward slashes, even on Windows).
-
-3. **Windows only — branded toasts:** run once for the "J.A.R.V.I.S." toast identity (Start-menu shortcut + arc-reactor icon):
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File setup-toast.ps1
+2. **Run the installer** from inside the folder — it wires the hooks into your `~/.claude/settings.json` (with a backup, preserving any hooks you already have), sets up the Windows toast identity, and installs the macOS HUD's Electron:
+   ```bash
+   node install.mjs
    ```
+   *(Prefer doing it by hand? Copy the `"hooks"` block from [`settings.example.json`](settings.example.json) into your settings and replace `__JARVIS_DIR__` with this folder's absolute path — forward slashes even on Windows. On Windows, also run `powershell -ExecutionPolicy Bypass -File setup-toast.ps1` once.)*
 
-4. **Restart Claude Code.** Send a prompt — he should greet you.
+3. **Restart Claude Code.** Send a prompt — he should greet you. Not hearing anything? `node doctor.mjs` will tell you why.
 
-To turn it off, remove the `hooks` block (or the lines you don't want). Every hook is independent.
+To turn it off, remove the `hooks` block (or the lines you don't want). Every hook is independent. Re-running `node install.mjs` is always safe — it replaces its own entries and never touches yours.
 
 ## How it works
 
@@ -88,9 +91,25 @@ Claude Code fires **hooks** on events (prompt submitted, tool used, response fin
 
 All state is local and ephemeral; nothing leaves your machine.
 
+## The cockpit (CLI)
+
+Everything is driveable from inside the install folder:
+
+```bash
+node jarvis.mjs              # status panel: version, voice state, library, live sessions
+node jarvis.mjs doctor       # full self-diagnosis with fix hints (--fix repairs the safe ones)
+node jarvis.mjs mute 2h      # Silence Protocol (also: 30m, sempre); unmute brings the voice back
+node jarvis.mjs quiet 22-07  # daily quiet hours (quiet off disables)
+node jarvis.mjs test fanout  # hear a random line from any category
+node jarvis.mjs lines        # browse all categories and lines
+node jarvis.mjs update       # update in place
+```
+
+You can also just ask in chat: **"silêncio"** mutes him (he confirms once, then goes quiet), **"pode falar"** unmutes. He answers with an in-character confirmation either way.
+
 ## Customizing the voice
 
-The 348 `.mp3` clips in [`clips/`](clips/) are pre-generated (ElevenLabs). This public build **does not include the generator or any API key**, so the lines are fixed. Want your own voice or language? Edit [`lines.mjs`](lines.mjs) and regenerate the clips with your own ElevenLabs key — the mapping is `clips/{category}-{index}.mp3`. (A generator script is intentionally left out here to keep the repo key-free.)
+The 377 `.mp3` clips in [`clips/`](clips/) are pre-generated (ElevenLabs). This public build **does not include the generator or any API key**, so the lines are fixed. Want your own voice or language? Edit [`lines.mjs`](lines.mjs) and regenerate the clips with your own ElevenLabs key — the mapping is `clips/{category}-{index}.mp3`. (A generator script is intentionally left out here to keep the repo key-free.)
 
 ## Updating
 
@@ -110,7 +129,6 @@ The folder ships a [`CLAUDE.md`](CLAUDE.md) so your own Claude Code can help you
 
 - **Linux HUD** — the Electron HUD should run on Linux too; needs testing.
 - Optional English voice pack.
-- One-command installer that wires the hooks for you.
 
 ## Notes
 

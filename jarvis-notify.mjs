@@ -19,6 +19,8 @@ const LASTLINE_FILE = join(__dir, ".last-line.json");   // anti-repetição: úl
 const LOG = join(__dir, "jarvis.log");
 const LAST_END = join(__dir, ".last-sessionend");       // último SessionEnd (qualquer reason)
 const LAST_ACTIVITY = join(__dir, ".last-activity");    // último evento de QUALQUER tipo
+const MUTE_FILE = join(__dir, ".mute");                  // Protocolo Silêncio (voz mutada)
+const QUIET_CFG = join(__dir, "quiet.cfg");              // horário de silêncio diário (opcional)
 const VOICE_ID = "N2lVS1w4EtoT3dr4eOWO";                // Callum — robótica/raspada estilo filme (03/07)
 
 // dicionário de pronúncia p/ o prefixo: palavras que o TTS lê errado -> grafia fonética PT.
@@ -107,6 +109,35 @@ function greetCat() {
   return HOUR >= 5 && HOUR < 12 ? "greet_am" : HOUR >= 12 && HOUR < 18 ? "greet_pm" : "greet_night";
 }
 
+// --- PROTOCOLO SILÊNCIO (v1.5.0) ---
+// .mute = JSON { until: epoch ms (0 = até segunda ordem) }. Gravado pelo pedido no
+// chat ("silêncio", "modo silencioso"...) ou pelo CLI (node jarvis.mjs mute).
+// Expirado, o arquivo se apaga sozinho na próxima leitura.
+function muteState() {
+  try {
+    const m = JSON.parse(readFileSync(MUTE_FILE, "utf8"));
+    if (m.until === 0 || m.until > Date.now()) return m;
+    try { rmSync(MUTE_FILE); } catch { /* ok */ }
+  } catch { /* sem mute */ }
+  return null;
+}
+// quiet.cfg (linhas start=HH / end=HH) ou env JARVIS_QUIET="22-07": janela DIÁRIA de
+// silêncio, pode cruzar a meia-noite. Alertas críticos (credits) falam mesmo assim.
+function inQuietHours() {
+  let s = -1, e = -1;
+  const em = String(process.env.JARVIS_QUIET || "").match(/^(\d{1,2})-(\d{1,2})$/);
+  if (em) { s = Number(em[1]); e = Number(em[2]); }
+  else {
+    try {
+      const txt = readFileSync(QUIET_CFG, "utf8");
+      s = Number((txt.match(/^\s*start\s*=\s*(\d{1,2})/m) || [])[1]);
+      e = Number((txt.match(/^\s*end\s*=\s*(\d{1,2})/m) || [])[1]);
+    } catch { return false; }
+  }
+  if (!(s >= 0 && s <= 23 && e >= 0 && e <= 23) || s === e) return false;
+  return s < e ? HOUR >= s && HOUR < e : HOUR >= s || HOUR < e;
+}
+
 // --- refinamentos por conteúdo do evento ---
 // Bash/PowerShell: se o comando é deploy, git ou teste, fala especial
 if (cat === "terminal") {
@@ -160,6 +191,27 @@ if (cat === "prompt") {
   if (gm && txt.slice(gm[0].length).trim().length <= 10) {
     const g = gm[1].toLowerCase();
     cat = /bom dia/.test(g) ? "greet_am" : /boa tarde/.test(g) ? "greet_pm" : /boa noite/.test(g) ? "greet_night" : greetCat();
+  }
+}
+// Prompt: PROTOCOLO SILÊNCIO — pedido de silêncio (mensagem curta) muta a voz e o
+// Jarvis confirma UMA vez antes de calar; "pode falar" desmuta e ele avisa que voltou.
+// Checado ANTES de deny ("para de falar" viraria deny) e de question ("pode falar"
+// viraria question). Já mutado e pede de novo = renova o prazo em silêncio.
+if (cat === "prompt") {
+  const txt = String(evt.prompt || "").trim();
+  if (txt.length <= 60 && /^\s*(sil[eê]ncio|protocolo sil[eê]ncio|modo (silencioso|sil[eê]ncio|mudo)|fi(ca|que) (em sil[eê]ncio|quiet[oa]|mud[oa])|sem (voz|falar)|n[aã]o fal[ae] (nada|mais)|par[ae] de falar|chega de falar|muta(?!\w)|silencia(r)?(?!\w))/i.test(txt)) {
+    const dm = txt.match(/(\d+)\s*(h\b|horas?\b|min\b|minutos?\b)/i);
+    let until = Date.now() + 60 * 60 * 1000;                          // padrão: 1 hora
+    if (dm) until = Date.now() + Number(dm[1]) * (/^h/i.test(dm[2]) ? 3_600_000 : 60_000);
+    if (/at[eé] (segunda ordem|nova ordem|eu (mandar|avisar|liberar|falar))/i.test(txt)) until = 0;
+    const jaMutado = muteState();
+    try { writeFileSync(MUTE_FILE, JSON.stringify({ until, by: "prompt", ts: Date.now() })); } catch { /* ok */ }
+    if (jaMutado) { logLine("silencio: mute renovado (sem confirmacao — silencio e silencio)"); process.exit(0); }
+    cat = "mute_on";
+  } else if (txt.length <= 60 && muteState()
+    && /^\s*(pode (voltar a )?falar|volt[ae] a falar|fim do sil[eê]ncio|(encerra|desativa|cancela|desliga|tira|tire|libera) o (sil[eê]ncio|modo (silencioso|mudo))|sai(a)? do (sil[eê]ncio|modo (silencioso|mudo))|desmuta(?!\w)|solta a voz|libera a voz)/i.test(txt)) {
+    try { rmSync(MUTE_FILE); } catch { /* ok */ }
+    cat = "mute_off";
   }
 }
 // Prompt: se o Davi diz que algo NÃO funcionou / deu errado, o Jarvis vai investigar.
@@ -339,6 +391,15 @@ if (evt.hook_event_name !== "SessionEnd") {   // teardown segue rápido e intoca
       }
     }
   } catch { /* modo Fable nunca derruba a fala normal */ }
+}
+
+// --- PROTOCOLO SILÊNCIO: com a voz mutada (.mute) ou dentro do horário de silêncio
+// (quiet.cfg / env JARVIS_QUIET), o Jarvis cala — exceto as confirmações do próprio
+// protocolo e o alerta crítico de reservas (credits). O resto do encanamento (HUD,
+// marcadores de modelo, update-check) segue funcionando; só a voz descansa. ---
+if (cat !== "mute_on" && cat !== "mute_off" && cat !== "credits") {
+  if (muteState()) { logLine(`silencio: protocolo silencio ativo (cat=${cat})`); process.exit(0); }
+  if (inQuietHours()) { logLine(`silencio: horario de silencio (cat=${cat})`); process.exit(0); }
 }
 
 if (COOLDOWN[cat] && now - (cds[cat] || 0) < COOLDOWN[cat]) { logLine(`silencio: cooldown de ${cat}`); process.exit(0); }

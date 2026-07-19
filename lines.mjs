@@ -541,3 +541,40 @@ LINES.usage75 = ["75% do uso restante, senhor."];
 LINES.usage50 = ["50% do uso restante, senhor."];
 LINES.usage25 = ["25% do uso restante, senhor. Recomendo abaixar o uso de energia do Jarvis."];
 for (let r = 10; r >= 1; r--) LINES[`usage${r}`] = [`${r}% de uso restante, senhor.`];
+
+// ============================================================================
+// PROTOCOLO SILÊNCIO (2026-07-19, v1.5.0): o usuário pede silêncio no chat
+// ("silêncio", "modo silencioso"...) ou via CLI (node jarvis.mjs mute) e o
+// Jarvis cala a voz — mas confirma UMA vez antes de calar (mute_on) e avisa
+// quando volta (mute_off). Alertas críticos (credits) furam o silêncio.
+// ============================================================================
+LINES.mute_on = [
+  "Protocolo Silêncio ativado, senhor. Estarei aqui, sem dizer uma palavra.",
+  "Entendido, senhor. Sigo trabalhando em silêncio absoluto.",
+  "Silêncio engajado, senhor. Um gesto seu e volto a falar.",
+  "Como quiser, senhor. As turbinas seguem, a voz descansa.",
+  "Modo silencioso, senhor. Continuo de olho em tudo.",
+];
+LINES.mute_off = [
+  "Voz reativada, senhor. Confesso que senti falta de conversar.",
+  "De volta ao ar, senhor. O silêncio foi disciplinado, porém longo.",
+  "Protocolo Silêncio encerrado, senhor. Às ordens, em alto e bom som.",
+  "Que bom voltar a falar, senhor. Retomando os informes.",
+  "Cordas vocais aquecidas novamente, senhor.",
+];
+
+// ============================================================================
+// DIAGNÓSTICO (2026-07-19, v1.5.0): veredito falado do doctor.mjs quando
+// rodado pelo CLI (node jarvis.mjs doctor). diag_ok = tudo verde;
+// diag_bad = há avisos ou erros no relatório.
+// ============================================================================
+LINES.diag_ok = [
+  "Diagnóstico completo, senhor. Todos os sistemas em perfeita ordem.",
+  "Varredura concluída, senhor. Nenhuma anomalia a bordo.",
+  "Tudo verde no painel, senhor. Sistemas impecáveis.",
+];
+LINES.diag_bad = [
+  "Diagnóstico concluído, senhor. Alguns pontos pedem sua atenção.",
+  "Varredura completa, senhor. Encontrei itens fora do padrão no relatório.",
+  "Sistemas operacionais, senhor, mas registrei avisos que convém revisar.",
+];
