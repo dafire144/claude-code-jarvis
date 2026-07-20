@@ -492,7 +492,11 @@ class FanoutHud : Form {
     base.OnMouseDown(e);
   }
   protected override void OnMouseMove(MouseEventArgs e) {
-    if (dragging) { Location = new Point(Location.X + e.X - dragStart.X, Location.Y + e.Y - dragStart.Y); movedDuringDrag = true; }
+    if (dragging) {
+      int dx = e.X - dragStart.X, dy = e.Y - dragStart.Y;
+      // WM_MOUSEMOVE espurio de delta ZERO apos o mouse-down nao e arrasto (ver JarvisHudWF)
+      if (dx != 0 || dy != 0) { Location = new Point(Location.X + dx, Location.Y + dy); movedDuringDrag = true; }
+    }
     base.OnMouseMove(e);
   }
   protected override void OnMouseUp(MouseEventArgs e) {

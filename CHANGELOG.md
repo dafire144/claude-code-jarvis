@@ -2,6 +2,11 @@
 
 Every installed Jarvis announces new versions by voice (daily check). Update in place with `node update.mjs`.
 
+## 1.5.3 — 2026-07-20 · Clicks behave like clicks
+
+- Fixed a sneaky input bug that made capsule clicks unreliable: Windows fires a spurious zero-delta mouse-move right after mouse-down, which the HUD interpreted as a **0-pixel drag** — so clicking a capsule to expand it would sometimes silently release the window from the dock instead. Now only real movement counts as dragging.
+- This was the "minimize-all button doesn't work" ghost: the button always delivered its broadcast, but erratic capsule clicks made the whole dock feel broken. Verified end-to-end: expand by click, one button click, everything folds back.
+
 ## 1.5.2 — 2026-07-20 · The minimize-all button becomes its own thing
 
 - "Minimize all" is now a **dedicated floating button**: a small always-on-top reactor-styled disc that lives right beside the **first capsule of the dock** (to its right when there's room, to its left otherwise) and does exactly one thing — one click and every open panel folds into its mini capsule.

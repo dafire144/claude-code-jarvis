@@ -1355,7 +1355,13 @@ class JarvisHudWF : Form {
     base.OnMouseDown(e);
   }
   protected override void OnMouseMove(MouseEventArgs e) {
-    if (dragging) { Location = new Point(Location.X + e.X - dragStart.X, Location.Y + e.Y - dragStart.Y); movedDuringDrag = true; }
+    if (dragging) {
+      int dx = e.X - dragStart.X, dy = e.Y - dragStart.Y;
+      // o Windows dispara WM_MOUSEMOVE espurio (delta ZERO) logo apos o mouse-down;
+      // sem este guard, um CLIQUE parado virava "arrasto de 0px" -> Release do dock
+      // em vez de restaurar a capsula (bug pego em 20/07)
+      if (dx != 0 || dy != 0) { Location = new Point(Location.X + dx, Location.Y + dy); movedDuringDrag = true; }
+    }
     base.OnMouseMove(e);
   }
   protected override void OnMouseUp(MouseEventArgs e) {
