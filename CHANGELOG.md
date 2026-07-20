@@ -2,6 +2,12 @@
 
 Every installed Jarvis announces new versions by voice (daily check). Update in place with `node update.mjs`.
 
+## 1.5.2 — 2026-07-20 · The minimize-all button becomes its own thing
+
+- "Minimize all" is now a **dedicated floating button**: a small always-on-top reactor-styled disc that lives right beside the **first capsule of the dock** (to its right when there's room, to its left otherwise) and does exactly one thing — one click and every open panel folds into its mini capsule.
+- It's always within reach even when every window is already minimized (the in-panel chevron only existed on expanded panels — useless if your windows start minimized). The panel button was removed; panels are back to **–** and **×**.
+- Self-managing: the HUD windows keep it alive via a heartbeat (single instance, auto-respawn), it follows the dock as windows come and go, appears with the first window and retires a minute after the last one closes.
+
 ## 1.5.1 — 2026-07-20 · Minimize all, simply
 
 - The double-chevron button now **minimizes every HUD window at once** — each panel folds into its live mini reactor capsule and stacks in the dock. One click to declutter, each capsule still one click from expanding.

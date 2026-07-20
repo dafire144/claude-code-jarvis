@@ -68,7 +68,6 @@ class FanoutHud : Form {
   Bitmap fullShot = null, miniShotBmp = null;
   const int MINI_W = 182, MINI_H = 54, MORPH_MS = 300;
   static Rectangle miniCloseRect = new Rectangle(MINI_W - 16, 5, 11, 11);   // fechar (mini)
-  static Rectangle minAllRect = new Rectangle(W - 64, 8, 16, 18);           // MINIMIZAR TODAS (cheio), a esquerda do minimizar
   // MINIMIZAR TODAS (v1.5.1, paridade com a telinha de sessao): carimbo one-shot em .minall.
   long minAllSeen = 0;
   int CurW() { return minimized ? MINI_W : W; }
@@ -183,6 +182,7 @@ class FanoutHud : Form {
   static string Unescape(string s) { return s.Replace("\\\"", "\"").Replace("\\\\", "\\").Replace("\\n", " "); }
 
   void DataTick() {
+    HudLayout.EnsureMinAllButton();   // o botao flutuante "minimizar todas" vive enquanto houver telinha
     ReadMission();
     long now = NowMs();
     // define quando fechar
@@ -219,15 +219,6 @@ class FanoutHud : Form {
     minAllSeen = ms;
     if (!minimized) BeginMorph(true);
   }
-  // glifo "minimizar todas": dois chevrons pra baixo empilhados (todas caem pro dock)
-  void DrawMinAllGlyph(Graphics g, Rectangle r) {
-    using (var hp = new Pen(AmberMut, 1.6f)) {
-      hp.StartCap = LineCap.Round; hp.EndCap = LineCap.Round;
-      float bx = r.X + 3, by = r.Y + 5;
-      g.DrawLine(hp, bx, by, bx + 5, by + 4); g.DrawLine(hp, bx + 5, by + 4, bx + 10, by);
-      g.DrawLine(hp, bx, by + 5, bx + 5, by + 9); g.DrawLine(hp, bx + 5, by + 9, bx + 10, by + 5);
-    }
-  }
 
   // ------- pintura -------
   static GraphicsPath RoundedPath(float x, float y, float w, float h, float r) {
@@ -258,11 +249,10 @@ class FanoutHud : Form {
     string st = done ? "CONCLUIDA" : (autoCloseSec > 0 ? "EM 2o PLANO" : "EM CAMPO");
     Color sc = done ? Online : Amber;
     float sw = g.MeasureString(st, fStat).Width;
-    float sx = W - 72 - sw;   // recuado p/ abrir espaco aos 3 botoes (recolher/minimizar/fechar)
+    float sx = W - 52 - sw;   // recuado p/ abrir espaco aos 2 botoes (minimizar/fechar)
     using (var b = new SolidBrush(sc)) g.FillEllipse(b, sx - 12, 13, 7, 7);
     g.DrawString(st, fStat, B(sc), sx, 10);
     // botoes RECOLHER TUDO (chevron duplo), MINIMIZAR (–) e FECHAR (x), em ambar visivel
-    DrawMinAllGlyph(g, minAllRect);
     using (var mp = new Pen(AmberMut, 2f)) { mp.StartCap = LineCap.Round; mp.EndCap = LineCap.Round; g.DrawLine(mp, minRect.X + 3, minRect.Y + 9, minRect.X + 13, minRect.Y + 9); }
     g.DrawString("x", fClose, B(AmberMut), closeRect.X + 3, closeRect.Y - 2);
 
@@ -496,7 +486,6 @@ class FanoutHud : Form {
         base.OnMouseDown(e); return;
       }
       if (closeRect.Contains(e.Location)) { Close(); return; }
-      if (minAllRect.Contains(e.Location)) { minAllSeen = HudLayout.BroadcastMinAll(); BeginMorph(true); return; }   // MINIMIZAR TODAS (as vizinhas veem o carimbo)
       if (minRect.Contains(e.Location)) { BeginMorph(true); return; }   // minimizar
       dragging = true; dragStart = e.Location;
     }

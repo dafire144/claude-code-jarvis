@@ -84,7 +84,6 @@ class JarvisHudWF : Form {
   Rectangle morphStartRect, morphDestRect;   // sanfona: a janela voa de start->dest (reservando a pegada cheia)
   Bitmap fullShot = null, miniShotBmp = null, miniBg = null; bool miniBgDirty = true;
   static Rectangle minRect = new Rectangle(W - 45, 8, 16, 18);              // botao minimizar (cheio)
-  static Rectangle minAllRect = new Rectangle(W - 66, 8, 16, 18);           // MINIMIZAR TODAS (cheio), a esquerda do minimizar
   static Rectangle miniCloseRect = new Rectangle(MINI_W - 16, 5, 11, 11);   // fechar (mini)
   // ---- MINIMIZAR TODAS (v1.5.1): carimbo one-shot em .minall; um carimbo mais novo que o
   // nascimento desta janela minimiza o painel cheio (inclusive arrastado — minimizar rejunta
@@ -155,6 +154,8 @@ class JarvisHudWF : Form {
       FanoutHud.Shot(args[1], fdone, fkind, fmini); return;
     }
     if (args.Length >= 2 && args[0] == "--fanout") { FanoutHud.Run(args[1]); return; }   // telinha de fan-out (substitui o CMD)
+    if (args.Length >= 1 && args[0] == "--minall-btn") { Application.EnableVisualStyles(); Application.Run(new MinAllButton()); return; }   // botao flutuante "minimizar todas"
+    if (args.Length >= 2 && args[0] == "--btn-shot") { MinAllButton.Shot(args[1]); return; }   // QA do botao
     string sid = args.Length > 0 ? args[0] : "global";
     bool made; var m = new Mutex(true, "JarvisHud_" + Sanitize(sid), out made);
     if (!made) return;                       // ja existe janela p/ essa sessao
@@ -362,17 +363,8 @@ class JarvisHudWF : Form {
     if (!minimized) BeginMorph(true);
   }
 
-  // glifo "minimizar todas": dois chevrons pra baixo empilhados (todas caem pro dock)
-  void DrawMinAllGlyph(Graphics g, Rectangle r) {
-    using (var hp = new Pen(AmberMut, 1.6f)) {
-      hp.StartCap = LineCap.Round; hp.EndCap = LineCap.Round;
-      float bx = r.X + 3, by = r.Y + 5;
-      g.DrawLine(hp, bx, by, bx + 5, by + 4); g.DrawLine(hp, bx + 5, by + 4, bx + 10, by);
-      g.DrawLine(hp, bx, by + 5, bx + 5, by + 9); g.DrawLine(hp, bx + 5, by + 9, bx + 10, by + 5);
-    }
-  }
-
   void DataTick() {
+    HudLayout.EnsureMinAllButton();   // o botao flutuante "minimizar todas" vive enquanto houver telinha
     Beat();
     bool grew = ReadFeed();
     if (grew) ReadMeta();
@@ -954,7 +946,7 @@ class JarvisHudWF : Form {
     Color sc = status == "OPERANDO" ? HC(Amber, Ember) : status == "ENCERRADO" ? Faint : Online;
     string stxt = (heat >= 0.5 && status == "OPERANDO") ? "PLENA CARGA" : status;
     float sw = g.MeasureString(stxt, fStat).Width;
-    float sx = W - 78 - sw;                                          // recuado p/ abrir espaco aos 3 botoes (minimizar-todas/minimizar/fechar)
+    float sx = W - 56 - sw;                                          // recuado p/ abrir espaco aos 2 botoes (minimizar/fechar)
     using (var pillP = RoundedPath(sx - 18, 12, sw + 24, 14, 7)) {   // capsula do status
       using (var pf = new SolidBrush(Color.FromArgb(26, sc))) g.FillPath(pf, pillP);
       using (var pp = new Pen(Color.FromArgb(70, sc), 1f)) g.DrawPath(pp, pillP);
@@ -964,7 +956,6 @@ class JarvisHudWF : Form {
     using (var b = new SolidBrush(sc)) g.FillEllipse(b, sx - 12, 15, 7, 7);
     g.DrawString(stxt, fStat, B(sc), sx, 12);
     // ---- botoes RECOLHER TUDO (chevron duplo), MINIMIZAR (–) e FECHAR (x), em ambar visivel ----
-    DrawMinAllGlyph(g, minAllRect);
     using (var mp = new Pen(AmberMut, 2f)) { mp.StartCap = LineCap.Round; mp.EndCap = LineCap.Round; g.DrawLine(mp, minRect.X + 3, minRect.Y + 9, minRect.X + 13, minRect.Y + 9); }
     g.DrawString("x", fClose, B(AmberMut), closeRect.X + 2, closeRect.Y - 3);
 
@@ -1358,7 +1349,6 @@ class JarvisHudWF : Form {
         base.OnMouseDown(e); return;
       }
       if (closeRect.Contains(e.Location)) { try { File.WriteAllText(Path.Combine(dir, "closed"), "1"); } catch {} Close(); return; }
-      if (minAllRect.Contains(e.Location)) { minAllSeen = HudLayout.BroadcastMinAll(); BeginMorph(true); return; }   // MINIMIZAR TODAS (as vizinhas veem o carimbo)
       if (minRect.Contains(e.Location)) { BeginMorph(true); return; }   // minimizar
       dragging = true; dragStart = e.Location;
     }

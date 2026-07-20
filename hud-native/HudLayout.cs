@@ -229,6 +229,50 @@ static class HudLayout {
     } catch { return 0; }
   }
 
+  // ---- BOTAO FLUTUANTE "MINIMIZAR TODAS" (v1.5.2): janelinha dedicada que vive ao lado da
+  // PRIMEIRA capsula do dock e so faz uma coisa: gravar o broadcast .minall. As telinhas
+  // garantem a existencia dele (EnsureMinAllButton, chamada no DataTick de 1s): se o
+  // heartbeat .btn-hb esta velho, relancam o processo (--minall-btn, instancia unica). ----
+  public static string BtnHbPath() { return Path.Combine(Dir(), ".btn-hb"); }
+  public static void EnsureMinAllButton() {
+    try {
+      string hb = BtnHbPath();
+      if (File.Exists(hb)) {
+        long t; long.TryParse(File.ReadAllText(hb).Trim(), out t);
+        if (Now() - t < 15000) return;                  // botao vivo (bate o hb a cada ~2s)
+      }
+      File.WriteAllText(hb, Now().ToString());          // carimba JA: N telinhas no mesmo segundo nao lancam N botoes (o mutex e a defesa final)
+      string exe = Assembly.GetExecutingAssembly().Location;
+      var psi = new System.Diagnostics.ProcessStartInfo(exe, "--minall-btn");
+      psi.UseShellExecute = false; psi.CreateNoWindow = true;
+      System.Diagnostics.Process.Start(psi);
+    } catch {}
+  }
+  // PRIMEIRA capsula do dock (topo da coluna mais a direita): a ancora do botao flutuante.
+  public static bool FirstSlot(out Rectangle r) {
+    r = Rectangle.Empty; long now = Now(); int bestRight = int.MinValue;
+    var cands = new List<Rectangle>();
+    try {
+      foreach (var f in Directory.GetFiles(Dir(), "*.slot")) {
+        try {
+          string[] p = File.ReadAllText(f).Split('|');
+          if (p.Length < 6) continue;
+          long hb; int x, y, w, h;
+          if (!long.TryParse(p[2], out hb) || now - hb > STALE) continue;
+          if (!int.TryParse(p[1], out h) || !int.TryParse(p[3], out x) || !int.TryParse(p[4], out y) || !int.TryParse(p[5], out w)) continue;
+          cands.Add(new Rectangle(x, y, w, h));
+          if (x + w > bestRight) bestRight = x + w;
+        } catch {}
+      }
+    } catch {}
+    bool has = false; Rectangle best = Rectangle.Empty;
+    foreach (var c in cands) {
+      if (c.X + c.Width < bestRight - 8) continue;      // so a coluna mais a direita
+      if (!has || c.Y < best.Y) { best = c; has = true; }
+    }
+    r = best; return has;
+  }
+
   // ---- AUTO-TESTE do invariante "zero sobreposicao / nada fora da tela" (jarvis-hud-wf.exe --layout-test) ----
   // Enumera cenarios (minis 182x54, cheias 380x300, casa-de-festas 342x190) em varias combinacoes
   // e telas, empacota com Pack e checa: nenhum par de janelas se sobrepoe e nenhuma sai da area util.
@@ -323,5 +367,96 @@ static class HudLayout {
     }
     report.AppendLine((fails == 0 ? "OK" : "FALHOU") + ": " + cases + " cenarios (" + fitCases + " dentro da capacidade, " + overCap + " over-capacity), " + fails + " violacoes.");
     return fails;
+  }
+}
+
+// ---- BOTAO FLUTUANTE "MINIMIZAR TODAS" (v1.5.2) ----
+// Janelinha redonda 24x24, sempre-no-topo, SEPARADA das telinhas: acompanha a primeira
+// capsula do dock (a direita dela; sem folga na tela, encosta a esquerda) e um clique
+// grava o broadcast .minall -> todos os paineis cheios minimizam. Aparece quando ha
+// telinha viva, some quando o dock esvazia (e encerra apos 1min vazio; as telinhas
+// relancam pelo heartbeat). Instancia unica via mutex. Nao participa do layout (.slot).
+public class MinAllButton : Form {
+  const int BW = 24, BH = 24, GAP = 4;
+  static Color Ink1 = ColorTranslator.FromHtml("#121F17"), Ink2 = ColorTranslator.FromHtml("#070E09");
+  static Color Amber = ColorTranslator.FromHtml("#E8B24A"), AmberMut = ColorTranslator.FromHtml("#BE9E6C"), BorderC = ColorTranslator.FromHtml("#C9A877");
+  System.Windows.Forms.Timer tick; long lastHb = 0, emptySince = 0; double flash = 0; bool hover = false;
+  System.Threading.Mutex mx; bool got = false;
+
+  protected override bool ShowWithoutActivation { get { return true; } }             // nao rouba o foco
+  protected override CreateParams CreateParams { get { var cp = base.CreateParams; cp.ExStyle |= 0x80; return cp; } }   // toolwindow: fora do Alt-Tab
+
+  public MinAllButton() {
+    mx = new System.Threading.Mutex(true, "JarvisMinAllBtn", out got);
+    if (!got) Environment.Exit(0);                                                   // ja existe um botao
+    FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; TopMost = true;
+    StartPosition = FormStartPosition.Manual; Size = new Size(BW, BH);
+    SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer, true);
+    var gp = new System.Drawing.Drawing2D.GraphicsPath(); gp.AddEllipse(0, 0, BW - 1, BH - 1); Region = new Region(gp);
+    Cursor = Cursors.Hand; Opacity = 0.97;
+    tick = new System.Windows.Forms.Timer(); tick.Interval = 250;
+    tick.Tick += delegate { Poll(); }; tick.Start();
+    Poll();
+  }
+
+  static long NowMs() { return (long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds; }
+
+  void Poll() {
+    long now = NowMs();
+    if (now - lastHb > 2000) { try { File.WriteAllText(HudLayout.BtnHbPath(), now.ToString()); } catch {} lastHb = now; }
+    Rectangle first;
+    if (HudLayout.FirstSlot(out first)) {
+      emptySince = 0;
+      var wa = Screen.PrimaryScreen.WorkingArea;
+      int x = first.X + first.Width + GAP;                       // a direita da primeira capsula
+      if (x + BW > wa.Right - 2) x = first.X - GAP - BW;         // sem folga -> a esquerda dela
+      var p = new Point(x, first.Y + 15);                        // alinhado a linha dos botoes da capsula
+      if (!Visible) { Location = p; Show(); }
+      else if (Location != p) Location = p;
+      if (flash > 0) { flash -= 0.25; if (flash < 0) flash = 0; }
+      Invalidate();                                              // pulso suave a 4fps (24x24 = barato)
+    } else {
+      if (Visible) Hide();
+      if (emptySince == 0) emptySince = now;
+      else if (now - emptySince > 60000) Close();                // dock vazio ha 1min: encerra (telinha nova relanca)
+    }
+  }
+
+  protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
+  protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
+  protected override void OnMouseDown(MouseEventArgs e) {
+    if (e.Button == MouseButtons.Left) { HudLayout.BroadcastMinAll(); flash = 1; Invalidate(); }
+    base.OnMouseDown(e);
+  }
+
+  protected override void OnPaint(PaintEventArgs e) {
+    try { Render(e.Graphics, hover, flash, NowMs()); } catch {}
+  }
+  // desenho num metodo estatico p/ o modo QA (--btn-shot) reusar sem abrir janela
+  public static void Render(Graphics g, bool hov, double fl, long clockMs) {
+    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+    var rect = new Rectangle(0, 0, BW, BH);
+    using (var bg = new System.Drawing.Drawing2D.LinearGradientBrush(rect, Ink1, Ink2, 60f)) g.FillEllipse(bg, 0, 0, BW - 1, BH - 1);
+    double pulse = 0.5 + 0.5 * Math.Sin(clockMs / 500.0 * 1.1);
+    int ba = (int)(150 + 60 * pulse); if (hov || fl > 0) ba = 255;
+    using (var pen = new Pen(Color.FromArgb(ba, hov || fl > 0 ? Amber : BorderC), hov ? 1.8f : 1.3f)) g.DrawEllipse(pen, 0.9f, 0.9f, BW - 2.8f, BH - 2.8f);
+    if (fl > 0) using (var fb = new SolidBrush(Color.FromArgb((int)(70 * fl), Amber))) g.FillEllipse(fb, 2, 2, BW - 5, BH - 5);
+    using (var hp = new Pen(hov ? Amber : AmberMut, 1.7f)) {
+      hp.StartCap = System.Drawing.Drawing2D.LineCap.Round; hp.EndCap = System.Drawing.Drawing2D.LineCap.Round;
+      float cx = BW / 2f, by = 6.5f;
+      g.DrawLine(hp, cx - 4.5f, by, cx, by + 4); g.DrawLine(hp, cx, by + 4, cx + 4.5f, by);
+      g.DrawLine(hp, cx - 4.5f, by + 6, cx, by + 10); g.DrawLine(hp, cx, by + 10, cx + 4.5f, by + 6);
+    }
+  }
+  public static void Shot(string outPath) {
+    using (var bmp = new Bitmap(BW, BH)) {
+      using (var g = Graphics.FromImage(bmp)) { g.Clear(Color.Black); Render(g, false, 0, 250); }
+      bmp.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
+    }
+  }
+
+  protected override void OnFormClosed(FormClosedEventArgs e) {
+    try { if (got && mx != null) mx.ReleaseMutex(); } catch {}
+    base.OnFormClosed(e);
   }
 }
