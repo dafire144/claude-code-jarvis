@@ -237,6 +237,18 @@ static class HudLayout {
   // garantem a existencia dele (EnsureMinAllButton, chamada no DataTick de 1s): se o
   // heartbeat .btn-hb esta velho, relancam o processo (--minall-btn, instancia unica). ----
   public static string BtnHbPath() { return Path.Combine(Dir(), ".btn-hb"); }
+  // posicao ATUAL do botao (o botao grava; as telinhas leem pra VOAR ate ele na succao)
+  public static string BtnPosPath() { return Path.Combine(Dir(), ".btn-pos"); }
+  public static void WriteBtnPos(int x, int y, int w, int h) { try { File.WriteAllText(BtnPosPath(), x + "|" + y + "|" + w + "|" + h); } catch {} }
+  public static bool ReadBtnPos(out Rectangle r) {
+    r = Rectangle.Empty;
+    try {
+      string[] p = File.ReadAllText(BtnPosPath()).Split('|');
+      if (p.Length < 4) return false;
+      r = new Rectangle(int.Parse(p[0]), int.Parse(p[1]), int.Parse(p[2]), int.Parse(p[3]));
+      return true;
+    } catch { return false; }
+  }
   public static void EnsureMinAllButton() {
     try {
       string hb = BtnHbPath();
@@ -385,14 +397,19 @@ public class MinAllButton : Form {
   static Color Ink1 = ColorTranslator.FromHtml("#121F17"), Ink2 = ColorTranslator.FromHtml("#070E09");
   static Color Amber = ColorTranslator.FromHtml("#E8B24A"), AmberMut = ColorTranslator.FromHtml("#BE9E6C"), BorderC = ColorTranslator.FromHtml("#C9A877");
   System.Windows.Forms.Timer tick; long lastHb = 0, emptySince = 0; double flash = 0; bool hover = false;
+  Point lastPosWrote = new Point(-9999, -9999); int lastWWrote = 0;   // throttle do .btn-pos (so grava em mudanca)
   System.Threading.Mutex mx; bool got = false;
 
   protected override bool ShowWithoutActivation { get { return true; } }             // nao rouba o foco
   protected override CreateParams CreateParams { get { var cp = base.CreateParams; cp.ExStyle |= 0x80; return cp; } }   // toolwindow: fora do Alt-Tab
 
   public MinAllButton() {
-    mx = new System.Threading.Mutex(true, "JarvisMinAllBtn", out got);
-    if (!got) Environment.Exit(0);                                                   // ja existe um botao
+    // mutex POR INSTALACAO (nao global): duas instalacoes na mesma maquina (ex.: repo de
+    // dev + ~/.claude/jarvis) tem docks separados -> cada uma merece o seu botao
+    string instKey = "0";
+    try { instKey = Math.Abs(AppDomain.CurrentDomain.BaseDirectory.ToLowerInvariant().GetHashCode()).ToString(); } catch { /* ok */ }
+    mx = new System.Threading.Mutex(true, "JarvisMinAllBtn_" + instKey, out got);
+    if (!got) Environment.Exit(0);                                                   // ja existe um botao DESTA instalacao
     FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; TopMost = true;
     StartPosition = FormStartPosition.Manual; Size = new Size(BW, BH);
     SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer, true);
@@ -429,11 +446,19 @@ public class MinAllButton : Form {
       ApplyShape();
       var wa = Screen.PrimaryScreen.WorkingArea;
       int w = CurBW();
-      int x = first.X + first.Width + GAP;                       // a direita da primeira capsula
-      if (x + w > wa.Right - 2) x = first.X - GAP - w;           // sem folga -> a esquerda dela
-      var p = new Point(x, first.Y + 15);                        // alinhado a linha dos botoes da capsula
+      Point p;
+      if (HudLayout.IsHidden()) {
+        // pilula ASSUME O POSTO da primeira capsula (canto do dock) — as telinhas foram
+        // sugadas pra ca; nada de pular pro lado (era o "teleporte" que o Davi viu)
+        p = new Point(first.X + first.Width - w, first.Y);
+      } else {
+        int x = first.X + first.Width + GAP;                     // a direita da primeira capsula
+        if (x + w > wa.Right - 2) x = first.X - GAP - w;         // sem folga -> a esquerda dela
+        p = new Point(x, first.Y + 15);                          // alinhado a linha dos botoes da capsula
+      }
       if (!Visible) { Location = p; Show(); }
       else if (Location != p) Location = p;
+      if (Location != lastPosWrote || w != lastWWrote) { HudLayout.WriteBtnPos(Location.X, Location.Y, w, BH); lastPosWrote = Location; lastWWrote = w; }   // alvo da succao
       if (flash > 0) { flash -= 0.25; if (flash < 0) flash = 0; }
       Invalidate();                                              // pulso suave a 4fps (janelinha minuscula = barato)
     } else {

@@ -86,6 +86,14 @@ class JarvisHudWF : Form {
   static Rectangle minRect = new Rectangle(W - 45, 8, 16, 18);              // botao minimizar (cheio)
   static Rectangle miniCloseRect = new Rectangle(MINI_W - 16, 5, 11, 11);   // fechar (mini)
   protected override bool ShowWithoutActivation { get { return true; } }   // reaparecer do "esconder todas" nao rouba o foco
+  // SUCÇÃO (v1.6.1): ao esconder, a janela VOA ate o botao desvanecendo; ao mostrar, renasce
+  // no botao e voa de volta. 0=normal · 1=voando pro botao · 2=escondida · 3=voando de volta.
+  int hideFly = 0; long hideFlyT0 = 0; Point hideFlyFrom;
+  Point BtnPoint() {
+    Rectangle b;
+    if (HudLayout.ReadBtnPos(out b)) return new Point(b.X + b.Width - Width, b.Y);   // canto sup-dir da janela encosta no botao
+    var wa = Screen.PrimaryScreen.WorkingArea; return new Point(wa.Right - Width - 12, wa.Top + 42);
+  }
   [System.Runtime.InteropServices.DllImport("winmm.dll")] static extern uint timeBeginPeriod(uint p);
   [System.Runtime.InteropServices.DllImport("winmm.dll")] static extern uint timeEndPeriod(uint p);
 
@@ -287,6 +295,19 @@ class JarvisHudWF : Form {
         if (mt >= 1) { EndMorph(); return; }
         ApplyMorphBounds(mt); Invalidate(); return;
       }
+      if (hideFly == 1 || hideFly == 3) {             // SUCÇÃO pro botao / retorno (one-shot ~280ms)
+        double ht = (NowMs() - hideFlyT0) / 280.0; if (ht > 1) ht = 1;
+        double hs = SmoothStep(ht);
+        Point A = hideFly == 1 ? hideFlyFrom : BtnPoint();
+        Point B = hideFly == 1 ? BtnPoint() : hideFlyFrom;
+        Location = new Point((int)Math.Round(A.X + (B.X - A.X) * hs), (int)Math.Round(A.Y + (B.Y - A.Y) * hs));
+        try { Opacity = hideFly == 1 ? 1 - hs : hs; } catch { /* ok */ }
+        if (ht >= 1) {
+          if (hideFly == 1) { Hide(); try { Opacity = 1; } catch { /* ok */ } Location = hideFlyFrom; hideFly = 2; }
+          else { try { Opacity = 1; } catch { /* ok */ } hideFly = 0; }
+        }
+        return;
+      }
       // fase pelo RELOGIO (nao por incremento): velocidade estavel em qualquer fps,
       // sem "saltos" se um tick atrasar -- os satelites do Fable denunciavam (07/07)
       phase = (NowMs() - bornMs) / 500.0;
@@ -340,11 +361,18 @@ class JarvisHudWF : Form {
   // telinha minimiza/expande/fecha, as vizinhas reencaixam em ate ~60ms -> transiente minimo.
   void PlaceTick() {
     if (closing) return;                                       // shutdown em curso: nada
-    // "ESCONDER TODAS" (botao flutuante): marcador presente -> a janela SOME (Hide), mas o
-    // slot/heartbeat seguem vivos (posicao preservada e o botao continua ancorado); marcador
-    // removido -> reaparece exatamente onde estava. Janela arrastada esconde tambem (sem
-    // Touch: seu slot foi Released e o Touch o recriaria, devolvendo-a ao dock sem querer).
-    if (HudLayout.IsHidden()) { if (Visible) Hide(); if (!userMoved) HudLayout.Touch(pid); return; }
+    // "ESCONDER TODAS" (botao flutuante) com SUCÇÃO: marcador presente -> a janela voa ate o
+    // botao desvanecendo e some (slot/heartbeat seguem vivos, posicao real preservada);
+    // marcador removido -> renasce no botao e voa de volta pro lugar. Janela arrastada
+    // esconde tambem (sem Touch: o slot foi Released e o Touch o recriaria no dock).
+    bool esconder = HudLayout.IsHidden();
+    if (esconder && hideFly == 0 && Visible && !morphing && !booting) { hideFly = 1; hideFlyT0 = NowMs(); hideFlyFrom = Location; }
+    if (!esconder && hideFly == 2) {
+      hideFly = 3; hideFlyT0 = NowMs();
+      try { Opacity = 0; } catch { /* ok */ }
+      Location = BtnPoint(); Show();
+    }
+    if (hideFly != 0) { if (!userMoved) HudLayout.Touch(pid); return; }   // voo/escondida: o animTimer conduz, dock congelado
     if (!Visible) Show();                                      // ShowWithoutActivation: nao rouba o foco
     if (userMoved) return;                                     // fora do fluxo: nada
     // SO arraste e morph congelam a posicao (o usuario/o morph a controlam) -> ai so renova o hb.
@@ -1334,7 +1362,7 @@ class JarvisHudWF : Form {
   // ------- interacao -------
   protected override void OnMouseDown(MouseEventArgs e) {
     if (e.Button == MouseButtons.Left) {
-      if (morphing || booting || closing) return;            // durante morph/ignicao/desligamento, ignora cliques (senao o morph inicia mas fica congelado sob o boot, e sobra slot orfao no shutdown)
+      if (morphing || booting || closing || hideFly != 0) return;   // durante morph/ignicao/desligamento/succao, ignora cliques
       if (minimized) {
         if (miniCloseRect.Contains(e.Location)) { try { File.WriteAllText(Path.Combine(dir, "closed"), "1"); } catch {} Close(); return; }
         dragging = true; dragStart = e.Location;              // clique simples restaura (decidido no MouseUp)

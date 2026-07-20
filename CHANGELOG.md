@@ -2,6 +2,12 @@
 
 Every installed Jarvis announces new versions by voice (daily check). Update in place with `node update.mjs`.
 
+## 1.6.1 — 2026-07-20 · Suction
+
+- Hiding is now a **suction**: every capsule **flies into the toggle button** while fading out (~0.3s), and pours back out of it on restore — instead of blinking in and out of existence.
+- The pill **takes the first capsule's place** in the dock corner while hidden (it no longer jumped to the left when the 54px pill didn't fit the side gutter — the "teleport" report).
+- The button's single-instance lock is now **per install**, so a dev copy and a live install on the same machine each get their own button.
+
 ## 1.6.0 — 2026-07-20 · The floating button is now a "clear my screen" toggle
 
 - The floating button beside the first dock capsule is now a **hide/show toggle**, like Windows' "show desktop": one click and **every HUD window vanishes** (mini or expanded — the screen is yours); the button turns into a small **pill with a live count** of parked sessions; click it again and everything returns exactly where it was.

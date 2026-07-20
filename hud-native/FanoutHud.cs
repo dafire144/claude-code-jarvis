@@ -69,6 +69,13 @@ class FanoutHud : Form {
   const int MINI_W = 182, MINI_H = 54, MORPH_MS = 300;
   static Rectangle miniCloseRect = new Rectangle(MINI_W - 16, 5, 11, 11);   // fechar (mini)
   protected override bool ShowWithoutActivation { get { return true; } }   // reaparecer do "esconder todas" nao rouba o foco
+  // SUCÇÃO (v1.6.1): mesmo contrato da telinha de sessao (voa ate o botao / volta dele)
+  int hideFly = 0; long hideFlyT0 = 0; Point hideFlyFrom;
+  Point BtnPoint() {
+    Rectangle b;
+    if (HudLayout.ReadBtnPos(out b)) return new Point(b.X + b.Width - Width, b.Y);
+    var wa = Screen.PrimaryScreen.WorkingArea; return new Point(wa.Right - Width - 12, wa.Top + 42);
+  }
   int CurW() { return minimized ? MINI_W : W; }
   int CurH() { return minimized ? MINI_H : H; }
 
@@ -148,6 +155,19 @@ class FanoutHud : Form {
         if (mt >= 1) { EndMorph(); return; }
         ApplyMorphBounds(mt); Invalidate(); return;
       }
+      if (hideFly == 1 || hideFly == 3) {             // SUCÇÃO pro botao / retorno (one-shot ~280ms)
+        double ht = (NowMs() - hideFlyT0) / 280.0; if (ht > 1) ht = 1;
+        double hs = SmoothStep(ht);
+        Point A = hideFly == 1 ? hideFlyFrom : BtnPoint();
+        Point B = hideFly == 1 ? BtnPoint() : hideFlyFrom;
+        Location = new Point((int)Math.Round(A.X + (B.X - A.X) * hs), (int)Math.Round(A.Y + (B.Y - A.Y) * hs));
+        try { Opacity = hideFly == 1 ? 1 - hs : hs; } catch { /* ok */ }
+        if (ht >= 1) {
+          if (hideFly == 1) { Hide(); try { Opacity = 1; } catch { /* ok */ } Location = hideFlyFrom; hideFly = 2; }
+          else { try { Opacity = 1; } catch { /* ok */ } hideFly = 0; }
+        }
+        return;
+      }
       if (minimized) { Invalidate(); return; }   // mini e pequeno: repinta tudo (barato)
       Invalidate(swarmRect);
     };
@@ -203,8 +223,15 @@ class FanoutHud : Form {
 
   // reflow rapido no dock (~60ms): a casa de festas reencaixa junto das telinhas de sessao
   void PlaceTick() {
-    // "ESCONDER TODAS" (botao flutuante): mesmo contrato da telinha de sessao
-    if (HudLayout.IsHidden()) { if (Visible) Hide(); if (!userMoved) HudLayout.Touch(pid); return; }
+    // "ESCONDER TODAS" (botao flutuante) com SUCÇÃO: mesmo contrato da telinha de sessao
+    bool esconder = HudLayout.IsHidden();
+    if (esconder && hideFly == 0 && Visible && !morphing) { hideFly = 1; hideFlyT0 = NowMs(); hideFlyFrom = Location; }
+    if (!esconder && hideFly == 2) {
+      hideFly = 3; hideFlyT0 = NowMs();
+      try { Opacity = 0; } catch { /* ok */ }
+      Location = BtnPoint(); Show();
+    }
+    if (hideFly != 0) { if (!userMoved) HudLayout.Touch(pid); return; }   // voo/escondida: o animTimer conduz
     if (!Visible) Show();
     if (userMoved) return;
     if (dragging || morphing) { HudLayout.Touch(pid); return; }   // usuario/morph controlam a posicao: so renova o hb
@@ -471,7 +498,7 @@ class FanoutHud : Form {
   // ------- interacao -------
   protected override void OnMouseDown(MouseEventArgs e) {
     if (e.Button == MouseButtons.Left) {
-      if (morphing) return;                                  // durante o morph, ignora cliques
+      if (morphing || hideFly != 0) return;                  // durante o morph/succao, ignora cliques
       if (minimized) {
         if (miniCloseRect.Contains(e.Location)) { Close(); return; }
         dragging = true; dragStart = e.Location;              // clique simples restaura (decidido no MouseUp)
