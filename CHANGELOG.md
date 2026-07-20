@@ -2,6 +2,12 @@
 
 Every installed Jarvis announces new versions by voice (daily check). Update in place with `node update.mjs`.
 
+## 1.5.1 — 2026-07-20 · Minimize all, simply
+
+- The double-chevron button now **minimizes every HUD window at once** — each panel folds into its live mini reactor capsule and stacks in the dock. One click to declutter, each capsule still one click from expanding.
+- This **replaces** the 1.4.5 "collapse all" (hide everything + a restore pill): windows no longer vanish off-screen — you always see your sessions.
+- Under the hood: a one-shot broadcast stamp (`.slots/.minall`); windows born later ignore old stamps. Layout self-test still at 48 scenarios, zero overlaps.
+
 ## 1.5.0 — 2026-07-19 · "The Attentive Butler"
 
 - **Silence Protocol** — say *"silêncio"* in chat (or `node jarvis.mjs mute 2h`) and the voice goes quiet after a single in-character confirmation; *"pode falar"* brings it back. Supports durations (*"silêncio por 30 minutos"*, *"até segunda ordem"*) and daily **quiet hours** (`quiet 22-07`). Critical reserve alerts still speak.

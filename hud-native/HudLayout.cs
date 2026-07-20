@@ -211,41 +211,22 @@ static class HudLayout {
     return false;
   }
 
-  // ---- "RECOLHER TUDO": marcador compartilhado. Presente => TODAS as telinhas se escondem;
-  // a de MENOR pid vira a PASTILHA "mostrar" no canto e as outras somem pra fora da tela. ----
-  static string HideAllPath() { return Path.Combine(Dir(), ".hideall"); }
-  public static void SetHideAll() { try { File.WriteAllText(HideAllPath(), Now().ToString()); } catch {} }
-  public static void ClearHideAll() { try { string f = HideAllPath(); if (File.Exists(f)) File.Delete(f); } catch {} }
-  public static bool IsHideAll() { try { return File.Exists(HideAllPath()); } catch { return false; } }
-  // ESTE pid e a pastilha? (menor pid entre as telinhas VIVAS). count = quantas telinhas vivas.
-  public static bool AmHandle(int pid, out int count) {
-    count = 0; int minPid = pid; long now = Now(); bool meSeen = false;
-    try {
-      foreach (var f in Directory.GetFiles(Dir(), "*.slot")) {
-        string nm = Path.GetFileNameWithoutExtension(f);
-        int opid; if (!int.TryParse(nm, out opid)) continue;
-        try { string[] p = File.ReadAllText(f).Split('|'); long ohb; if (p.Length < 3 || !long.TryParse(p[2], out ohb) || now - ohb > STALE) continue; } catch { continue; }
-        count++; if (opid == pid) meSeen = true; if (opid < minPid) minPid = opid;
-      }
-    } catch {}
-    if (!meSeen) count++;                 // meu slot pode nao estar no disco neste exato instante
-    if (count < 1) count = 1;
-    return pid <= minPid;                 // sou o menor -> a pastilha
+  // ---- "MINIMIZAR TODAS" (v1.5.1, substitui o "recolher tudo" da v1.4.5): broadcast
+  // ONE-SHOT. O botao grava um timestamp em .minall; cada janela CHEIA que ve um carimbo
+  // mais novo que o proprio nascimento (e que o ultimo ja tratado) dispara o seu morph de
+  // minimizar -> todas caem no dock como mini-capsulas, juntas (poll de ~60ms). Sem estado
+  // persistente: nada fica escondido/fora da tela, janela nova ignora carimbos antigos. ----
+  static string MinAllPath() { return Path.Combine(Dir(), ".minall"); }
+  public static long BroadcastMinAll() {
+    long t = Now();
+    try { File.WriteAllText(MinAllPath(), t.ToString()); } catch {}
+    return t;   // quem clicou usa o retorno pra marcar o carimbo como tratado (nao se auto-dispara)
   }
-  // canto do dock (topo-direito) respeitando o hud-dock.cfg; e a posicao "escondida" fora da tela.
-  public static Point DockCorner(int w) { LoadCfg(); var wa = Screen.PrimaryScreen.WorkingArea; return new Point(wa.Right - MARGIN - w, wa.Top + TOPGAP); }
-  public static Point OffScreen(int y) { var wa = Screen.PrimaryScreen.WorkingArea; return new Point(wa.Right + 300, y); }
-  // ha OUTRA telinha viva alem desta? (p/ limpar o marcador quando a ultima fecha)
-  public static bool AnyOtherLive(int pid) {
-    long now = Now();
+  public static long MinAllStamp() {
     try {
-      foreach (var f in Directory.GetFiles(Dir(), "*.slot")) {
-        string nm = Path.GetFileNameWithoutExtension(f);
-        int opid; if (!int.TryParse(nm, out opid) || opid == pid) continue;
-        try { string[] p = File.ReadAllText(f).Split('|'); long ohb; if (p.Length >= 3 && long.TryParse(p[2], out ohb) && now - ohb <= STALE) return true; } catch {}
-      }
-    } catch {}
-    return false;
+      string f = MinAllPath(); if (!File.Exists(f)) return 0;
+      long v; return long.TryParse(File.ReadAllText(f).Trim(), out v) ? v : 0;
+    } catch { return 0; }
   }
 
   // ---- AUTO-TESTE do invariante "zero sobreposicao / nada fora da tela" (jarvis-hud-wf.exe --layout-test) ----
