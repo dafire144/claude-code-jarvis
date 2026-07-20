@@ -85,10 +85,7 @@ class JarvisHudWF : Form {
   Bitmap fullShot = null, miniShotBmp = null, miniBg = null; bool miniBgDirty = true;
   static Rectangle minRect = new Rectangle(W - 45, 8, 16, 18);              // botao minimizar (cheio)
   static Rectangle miniCloseRect = new Rectangle(MINI_W - 16, 5, 11, 11);   // fechar (mini)
-  // ---- MINIMIZAR TODAS (v1.5.1): carimbo one-shot em .minall; um carimbo mais novo que o
-  // nascimento desta janela minimiza o painel cheio (inclusive arrastado — minimizar rejunta
-  // ao dock, regra da v1.3.8). Substitui o "recolher tudo"/pastilha da v1.4.5.
-  long minAllSeen = 0;
+  protected override bool ShowWithoutActivation { get { return true; } }   // reaparecer do "esconder todas" nao rouba o foco
   [System.Runtime.InteropServices.DllImport("winmm.dll")] static extern uint timeBeginPeriod(uint p);
   [System.Runtime.InteropServices.DllImport("winmm.dll")] static extern uint timeEndPeriod(uint p);
 
@@ -154,8 +151,8 @@ class JarvisHudWF : Form {
       FanoutHud.Shot(args[1], fdone, fkind, fmini); return;
     }
     if (args.Length >= 2 && args[0] == "--fanout") { FanoutHud.Run(args[1]); return; }   // telinha de fan-out (substitui o CMD)
-    if (args.Length >= 1 && args[0] == "--minall-btn") { Application.EnableVisualStyles(); Application.Run(new MinAllButton()); return; }   // botao flutuante "minimizar todas"
-    if (args.Length >= 2 && args[0] == "--btn-shot") { MinAllButton.Shot(args[1]); return; }   // QA do botao
+    if (args.Length >= 1 && args[0] == "--minall-btn") { Application.EnableVisualStyles(); Application.Run(new MinAllButton()); return; }   // botao flutuante esconder/mostrar todas
+    if (args.Length >= 2 && args[0] == "--btn-shot") { MinAllButton.Shot(args[1], args.Length > 2 && args[2] == "hidden"); return; }   // QA do botao (disco | pilula "hidden")
     string sid = args.Length > 0 ? args[0] : "global";
     bool made; var m = new Mutex(true, "JarvisHud_" + Sanitize(sid), out made);
     if (!made) return;                       // ja existe janela p/ essa sessao
@@ -342,25 +339,20 @@ class JarvisHudWF : Form {
   // recompacta a posicao no dock (~16x/s pelo layoutTimer, alem do DataTick de 1s): quando uma
   // telinha minimiza/expande/fecha, as vizinhas reencaixam em ate ~60ms -> transiente minimo.
   void PlaceTick() {
-    CheckMinAll();                                             // broadcast "minimizar todas" (ve antes do early-return: janela arrastada tambem minimiza)
-    if (userMoved || closing) return;                          // fora do fluxo / fechando: nada
+    if (closing) return;                                       // shutdown em curso: nada
+    // "ESCONDER TODAS" (botao flutuante): marcador presente -> a janela SOME (Hide), mas o
+    // slot/heartbeat seguem vivos (posicao preservada e o botao continua ancorado); marcador
+    // removido -> reaparece exatamente onde estava. Janela arrastada esconde tambem (sem
+    // Touch: seu slot foi Released e o Touch o recriaria, devolvendo-a ao dock sem querer).
+    if (HudLayout.IsHidden()) { if (Visible) Hide(); if (!userMoved) HudLayout.Touch(pid); return; }
+    if (!Visible) Show();                                      // ShowWithoutActivation: nao rouba o foco
+    if (userMoved) return;                                     // fora do fluxo: nada
     // SO arraste e morph congelam a posicao (o usuario/o morph a controlam) -> ai so renova o hb.
     // Durante o BOOT a janela DEVE reflowar normal: a ignicao so pinta, nao dona a posicao; congela-la
     // deixava uma vizinha expandir POR CIMA dela por ate ~1,4s (regressao pega na re-auditoria).
     if (dragging || morphing) { HudLayout.Touch(pid); return; }
     var np = HudLayout.Place(pid, bornMs, CurW(), CurH(), false, minimized);
     if (np != Location) Location = np;
-  }
-
-  // "minimizar todas": carimbo novo em .minall (mais novo que o nascimento) -> minimiza o
-  // painel cheio pelo MESMO morph do botao. Estados delicados (morph/boot/shutdown) esperam
-  // o proximo carimbo — o clique do usuario e a fonte, nao um modo persistente.
-  void CheckMinAll() {
-    long ms = HudLayout.MinAllStamp();
-    if (ms <= minAllSeen || ms <= bornMs) return;
-    if (morphing || booting || closing) return;                // nao marca como visto: tenta no proximo tick
-    minAllSeen = ms;
-    if (!minimized) BeginMorph(true);
   }
 
   void DataTick() {

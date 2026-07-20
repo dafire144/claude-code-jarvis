@@ -2,6 +2,12 @@
 
 Every installed Jarvis announces new versions by voice (daily check). Update in place with `node update.mjs`.
 
+## 1.6.0 — 2026-07-20 · The floating button is now a "clear my screen" toggle
+
+- The floating button beside the first dock capsule is now a **hide/show toggle**, like Windows' "show desktop": one click and **every HUD window vanishes** (mini or expanded — the screen is yours); the button turns into a small **pill with a live count** of parked sessions; click it again and everything returns exactly where it was.
+- Windows born while hidden stay hidden (the pill's count ticks up so you know they arrived). Nothing is lost: slots and heartbeats stay alive, positions are preserved, and the button never leaves your reach. If the last window closes while hidden, the toggle clears itself so new sessions appear normally.
+- Rationale: with "start minimized" on, capsules are *already* minimized — folding panels (1.5.1–1.5.3) did nothing visible. What you actually want from the button is a free screen, with a way back. Replaces the `.minall` broadcast.
+
 ## 1.5.3 — 2026-07-20 · Clicks behave like clicks
 
 - Fixed a sneaky input bug that made capsule clicks unreliable: Windows fires a spurious zero-delta mouse-move right after mouse-down, which the HUD interpreted as a **0-pixel drag** — so clicking a capsule to expand it would sometimes silently release the window from the dock instead. Now only real movement counts as dragging.

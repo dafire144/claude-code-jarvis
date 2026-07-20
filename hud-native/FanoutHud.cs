@@ -68,8 +68,7 @@ class FanoutHud : Form {
   Bitmap fullShot = null, miniShotBmp = null;
   const int MINI_W = 182, MINI_H = 54, MORPH_MS = 300;
   static Rectangle miniCloseRect = new Rectangle(MINI_W - 16, 5, 11, 11);   // fechar (mini)
-  // MINIMIZAR TODAS (v1.5.1, paridade com a telinha de sessao): carimbo one-shot em .minall.
-  long minAllSeen = 0;
+  protected override bool ShowWithoutActivation { get { return true; } }   // reaparecer do "esconder todas" nao rouba o foco
   int CurW() { return minimized ? MINI_W : W; }
   int CurH() { return minimized ? MINI_H : H; }
 
@@ -204,20 +203,13 @@ class FanoutHud : Form {
 
   // reflow rapido no dock (~60ms): a casa de festas reencaixa junto das telinhas de sessao
   void PlaceTick() {
-    CheckMinAll();                                                // broadcast "minimizar todas" (antes do early-return: arrastada tambem minimiza)
+    // "ESCONDER TODAS" (botao flutuante): mesmo contrato da telinha de sessao
+    if (HudLayout.IsHidden()) { if (Visible) Hide(); if (!userMoved) HudLayout.Touch(pid); return; }
+    if (!Visible) Show();
     if (userMoved) return;
     if (dragging || morphing) { HudLayout.Touch(pid); return; }   // usuario/morph controlam a posicao: so renova o hb
     var np = HudLayout.Place(pid, bornMs, CurW(), CurH(), false, minimized);
     if (np != Location) Location = np;
-  }
-  // "minimizar todas": mesmo contrato da telinha de sessao (carimbo .minall mais novo que o
-  // nascimento minimiza o painel cheio; estados delicados tentam no proximo tick).
-  void CheckMinAll() {
-    long ms = HudLayout.MinAllStamp();
-    if (ms <= minAllSeen || ms <= bornMs) return;
-    if (morphing) return;                                         // nao marca como visto: tenta no proximo tick
-    minAllSeen = ms;
-    if (!minimized) BeginMorph(true);
   }
 
   // ------- pintura -------

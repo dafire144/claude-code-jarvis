@@ -211,22 +211,25 @@ static class HudLayout {
     return false;
   }
 
-  // ---- "MINIMIZAR TODAS" (v1.5.1, substitui o "recolher tudo" da v1.4.5): broadcast
-  // ONE-SHOT. O botao grava um timestamp em .minall; cada janela CHEIA que ve um carimbo
-  // mais novo que o proprio nascimento (e que o ultimo ja tratado) dispara o seu morph de
-  // minimizar -> todas caem no dock como mini-capsulas, juntas (poll de ~60ms). Sem estado
-  // persistente: nada fica escondido/fora da tela, janela nova ignora carimbos antigos. ----
-  static string MinAllPath() { return Path.Combine(Dir(), ".minall"); }
-  public static long BroadcastMinAll() {
-    long t = Now();
-    try { File.WriteAllText(MinAllPath(), t.ToString()); } catch {}
-    return t;   // quem clicou usa o retorno pra marcar o carimbo como tratado (nao se auto-dispara)
-  }
-  public static long MinAllStamp() {
+  // ---- "ESCONDER TODAS" (v1.6.0): estado compartilhado alternado pelo BOTAO flutuante.
+  // Marcador .hideall presente => TODAS as telinhas se escondem (Hide(); slot/heartbeat
+  // continuam vivos, entao a posicao e o proprio botao ficam preservados); ausente =>
+  // todas reaparecem onde estavam. Quem alterna e SO o botao (as janelas apenas obedecem).
+  // Substitui o broadcast .minall da v1.5.1-1.5.3 (dobrar em capsula nao servia: as
+  // capsulas do Davi ja nascem minimizadas -- o que ele quer e a TELA LIVRE, com volta).
+  static string HiddenPath() { return Path.Combine(Dir(), ".hideall"); }
+  public static void SetHidden() { try { File.WriteAllText(HiddenPath(), Now().ToString()); } catch {} }
+  public static void ClearHidden() { try { string f = HiddenPath(); if (File.Exists(f)) File.Delete(f); } catch {} }
+  public static bool IsHidden() { try { return File.Exists(HiddenPath()); } catch { return false; } }
+  // quantas telinhas vivas (pro rotulo do botao no modo escondido)
+  public static int LiveCount() {
+    int n = 0; long now = Now();
     try {
-      string f = MinAllPath(); if (!File.Exists(f)) return 0;
-      long v; return long.TryParse(File.ReadAllText(f).Trim(), out v) ? v : 0;
-    } catch { return 0; }
+      foreach (var f in Directory.GetFiles(Dir(), "*.slot")) {
+        try { string[] p = File.ReadAllText(f).Split('|'); long hb; if (p.Length >= 3 && long.TryParse(p[2], out hb) && now - hb <= STALE) n++; } catch {}
+      }
+    } catch {}
+    return n;
   }
 
   // ---- BOTAO FLUTUANTE "MINIMIZAR TODAS" (v1.5.2): janelinha dedicada que vive ao lado da
@@ -370,14 +373,15 @@ static class HudLayout {
   }
 }
 
-// ---- BOTAO FLUTUANTE "MINIMIZAR TODAS" (v1.5.2) ----
-// Janelinha redonda 24x24, sempre-no-topo, SEPARADA das telinhas: acompanha a primeira
-// capsula do dock (a direita dela; sem folga na tela, encosta a esquerda) e um clique
-// grava o broadcast .minall -> todos os paineis cheios minimizam. Aparece quando ha
-// telinha viva, some quando o dock esvazia (e encerra apos 1min vazio; as telinhas
-// relancam pelo heartbeat). Instancia unica via mutex. Nao participa do layout (.slot).
+// ---- BOTAO FLUTUANTE "ESCONDER/MOSTRAR TODAS" (v1.6.0; nasceu como minimizar-todas na
+// v1.5.2) ---- Janelinha sempre-no-topo, SEPARADA das telinhas, ao lado da primeira
+// capsula do dock (a direita dela; sem folga na tela, encosta a esquerda). E um
+// INTERRUPTOR estilo "mostrar area de trabalho": clique 1 esconde TODAS as telinhas
+// (marcador .hideall; disco vira PILULA com a contagem), clique 2 traz todas de volta.
+// Aparece quando ha telinha viva, some quando o dock esvazia (e encerra apos 1min,
+// limpando o marcador; as telinhas relancam pelo heartbeat). Mutex = instancia unica.
 public class MinAllButton : Form {
-  const int BW = 24, BH = 24, GAP = 4;
+  const int BW = 24, BH = 24, PW = 54, GAP = 4;   // disco (mostrar) e pilula (escondido)
   static Color Ink1 = ColorTranslator.FromHtml("#121F17"), Ink2 = ColorTranslator.FromHtml("#070E09");
   static Color Amber = ColorTranslator.FromHtml("#E8B24A"), AmberMut = ColorTranslator.FromHtml("#BE9E6C"), BorderC = ColorTranslator.FromHtml("#C9A877");
   System.Windows.Forms.Timer tick; long lastHb = 0, emptySince = 0; double flash = 0; bool hover = false;
@@ -401,56 +405,95 @@ public class MinAllButton : Form {
 
   static long NowMs() { return (long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds; }
 
+  int CurBW() { return HudLayout.IsHidden() ? PW : BW; }
+  void ApplyShape() {
+    int w = CurBW();
+    if (Width == w) return;
+    Size = new Size(w, BH);
+    var gp = new System.Drawing.Drawing2D.GraphicsPath();
+    if (w > BH) gp.AddPath(RoundPill(w, BH), false); else gp.AddEllipse(0, 0, w - 1, BH - 1);
+    Region = new Region(gp);
+  }
+  static System.Drawing.Drawing2D.GraphicsPath RoundPill(int w, int h) {
+    var gp = new System.Drawing.Drawing2D.GraphicsPath(); float r = (h - 1) / 2f;
+    gp.AddArc(0, 0, 2 * r, 2 * r, 90, 180); gp.AddArc(w - 1 - 2 * r, 0, 2 * r, 2 * r, 270, 180); gp.CloseFigure();
+    return gp;
+  }
+
   void Poll() {
     long now = NowMs();
     if (now - lastHb > 2000) { try { File.WriteAllText(HudLayout.BtnHbPath(), now.ToString()); } catch {} lastHb = now; }
     Rectangle first;
     if (HudLayout.FirstSlot(out first)) {
       emptySince = 0;
+      ApplyShape();
       var wa = Screen.PrimaryScreen.WorkingArea;
+      int w = CurBW();
       int x = first.X + first.Width + GAP;                       // a direita da primeira capsula
-      if (x + BW > wa.Right - 2) x = first.X - GAP - BW;         // sem folga -> a esquerda dela
+      if (x + w > wa.Right - 2) x = first.X - GAP - w;           // sem folga -> a esquerda dela
       var p = new Point(x, first.Y + 15);                        // alinhado a linha dos botoes da capsula
       if (!Visible) { Location = p; Show(); }
       else if (Location != p) Location = p;
       if (flash > 0) { flash -= 0.25; if (flash < 0) flash = 0; }
-      Invalidate();                                              // pulso suave a 4fps (24x24 = barato)
+      Invalidate();                                              // pulso suave a 4fps (janelinha minuscula = barato)
     } else {
       if (Visible) Hide();
       if (emptySince == 0) emptySince = now;
-      else if (now - emptySince > 60000) Close();                // dock vazio ha 1min: encerra (telinha nova relanca)
+      else if (now - emptySince > 60000) { HudLayout.ClearHidden(); Close(); }   // dock vazio ha 1min: encerra SEM deixar telinha nova nascer escondida
     }
   }
 
   protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
   protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
   protected override void OnMouseDown(MouseEventArgs e) {
-    if (e.Button == MouseButtons.Left) { HudLayout.BroadcastMinAll(); flash = 1; Invalidate(); }
+    if (e.Button == MouseButtons.Left) {
+      if (HudLayout.IsHidden()) HudLayout.ClearHidden(); else HudLayout.SetHidden();   // interruptor
+      flash = 1; ApplyShape(); Invalidate();
+    }
     base.OnMouseDown(e);
   }
 
   protected override void OnPaint(PaintEventArgs e) {
-    try { Render(e.Graphics, hover, flash, NowMs()); } catch {}
+    try { Render(e.Graphics, Width, HudLayout.IsHidden(), HudLayout.LiveCount(), hover, flash, NowMs()); } catch {}
   }
   // desenho num metodo estatico p/ o modo QA (--btn-shot) reusar sem abrir janela
-  public static void Render(Graphics g, bool hov, double fl, long clockMs) {
+  public static void Render(Graphics g, int w, bool hidden, int count, bool hov, double fl, long clockMs) {
     g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-    var rect = new Rectangle(0, 0, BW, BH);
-    using (var bg = new System.Drawing.Drawing2D.LinearGradientBrush(rect, Ink1, Ink2, 60f)) g.FillEllipse(bg, 0, 0, BW - 1, BH - 1);
+    g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+    var rect = new Rectangle(0, 0, w, BH);
     double pulse = 0.5 + 0.5 * Math.Sin(clockMs / 500.0 * 1.1);
     int ba = (int)(150 + 60 * pulse); if (hov || fl > 0) ba = 255;
-    using (var pen = new Pen(Color.FromArgb(ba, hov || fl > 0 ? Amber : BorderC), hov ? 1.8f : 1.3f)) g.DrawEllipse(pen, 0.9f, 0.9f, BW - 2.8f, BH - 2.8f);
-    if (fl > 0) using (var fb = new SolidBrush(Color.FromArgb((int)(70 * fl), Amber))) g.FillEllipse(fb, 2, 2, BW - 5, BH - 5);
+    using (var bg = new System.Drawing.Drawing2D.LinearGradientBrush(rect, Ink1, Ink2, 60f))
+    using (var path = w > BH ? RoundPill(w, BH) : null) {
+      if (path != null) g.FillPath(bg, path); else g.FillEllipse(bg, 0, 0, w - 1, BH - 1);
+      using (var pen = new Pen(Color.FromArgb(ba, hov || fl > 0 ? Amber : BorderC), hov ? 1.8f : 1.3f)) {
+        if (path != null) g.DrawPath(pen, path); else g.DrawEllipse(pen, 0.9f, 0.9f, w - 2.8f, BH - 2.8f);
+      }
+    }
+    if (fl > 0) using (var fb = new SolidBrush(Color.FromArgb((int)(70 * fl), Amber))) g.FillRectangle(fb, 2, 2, w - 5, BH - 5);
     using (var hp = new Pen(hov ? Amber : AmberMut, 1.7f)) {
       hp.StartCap = System.Drawing.Drawing2D.LineCap.Round; hp.EndCap = System.Drawing.Drawing2D.LineCap.Round;
-      float cx = BW / 2f, by = 6.5f;
-      g.DrawLine(hp, cx - 4.5f, by, cx, by + 4); g.DrawLine(hp, cx, by + 4, cx + 4.5f, by);
-      g.DrawLine(hp, cx - 4.5f, by + 6, cx, by + 10); g.DrawLine(hp, cx, by + 10, cx + 4.5f, by + 6);
+      if (!hidden) {
+        // modo MOSTRANDO: chevrons pra baixo = "esconder todas" (tela livre)
+        float cx = w / 2f, by = 6.5f;
+        g.DrawLine(hp, cx - 4.5f, by, cx, by + 4); g.DrawLine(hp, cx, by + 4, cx + 4.5f, by);
+        g.DrawLine(hp, cx - 4.5f, by + 6, cx, by + 10); g.DrawLine(hp, cx, by + 10, cx + 4.5f, by + 6);
+      } else {
+        // modo ESCONDIDO (pilula): pip do reator pulsando + contagem + chevron pra cima = "mostrar"
+        float cy = BH / 2f;
+        using (var gl = new SolidBrush(Color.FromArgb((int)(48 + 40 * pulse), Amber))) g.FillEllipse(gl, 5, cy - 7, 14, 14);
+        using (var b = new SolidBrush(Amber)) g.FillEllipse(b, 9.6f, cy - 2.4f, 4.8f, 4.8f);
+        using (var f = new Font("Consolas", 9f, FontStyle.Bold))
+        using (var tb = new SolidBrush(Amber)) g.DrawString(count.ToString(), f, tb, 21, cy - 8);
+        float hx = w - 15;
+        g.DrawLine(hp, hx - 4, cy + 2, hx, cy - 2.5f); g.DrawLine(hp, hx, cy - 2.5f, hx + 4, cy + 2);
+      }
     }
   }
-  public static void Shot(string outPath) {
-    using (var bmp = new Bitmap(BW, BH)) {
-      using (var g = Graphics.FromImage(bmp)) { g.Clear(Color.Black); Render(g, false, 0, 250); }
+  public static void Shot(string outPath, bool hidden) {
+    int w = hidden ? PW : BW;
+    using (var bmp = new Bitmap(w, BH)) {
+      using (var g = Graphics.FromImage(bmp)) { g.Clear(Color.Black); Render(g, w, hidden, 3, false, 0, 250); }
       bmp.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
     }
   }
