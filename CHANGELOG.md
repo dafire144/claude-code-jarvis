@@ -2,6 +2,11 @@
 
 Every installed Jarvis announces new versions by voice (daily check). Update in place with `node update.mjs`.
 
+## 1.6.2 — 2026-07-20 · Suction, buttery
+
+- The suction flight now runs at **~120 fps** (it was riding the idle 30 fps timer — hence the reported choppiness), same high-resolution one-shot treatment the shutdown cinematic gets.
+- New easing character: capsules **accelerate** into the button when hiding and **decelerate** into place when returning — reads like actual suction instead of a linear glide.
+
 ## 1.6.1 — 2026-07-20 · Suction
 
 - Hiding is now a **suction**: every capsule **flies into the toggle button** while fading out (~0.3s), and pours back out of it on restore — instead of blinking in and out of existence.

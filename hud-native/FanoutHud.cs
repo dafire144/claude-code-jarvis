@@ -155,14 +155,16 @@ class FanoutHud : Form {
         if (mt >= 1) { EndMorph(); return; }
         ApplyMorphBounds(mt); Invalidate(); return;
       }
-      if (hideFly == 1 || hideFly == 3) {             // SUCÇÃO pro botao / retorno (one-shot ~280ms)
+      if (hideFly == 1 || hideFly == 3) {             // SUCÇÃO pro botao / retorno (one-shot ~280ms a ~120fps)
         double ht = (NowMs() - hideFlyT0) / 280.0; if (ht > 1) ht = 1;
-        double hs = SmoothStep(ht);
+        // succao ACELERA pro botao (easeIn); retorno DESACELERA ao pousar (easeOut)
+        double hs = hideFly == 1 ? ht * ht : 1 - (1 - ht) * (1 - ht);
         Point A = hideFly == 1 ? hideFlyFrom : BtnPoint();
         Point B = hideFly == 1 ? BtnPoint() : hideFlyFrom;
         Location = new Point((int)Math.Round(A.X + (B.X - A.X) * hs), (int)Math.Round(A.Y + (B.Y - A.Y) * hs));
         try { Opacity = hideFly == 1 ? 1 - hs : hs; } catch { /* ok */ }
         if (ht >= 1) {
+          try { animTimer.Interval = 33; } catch { /* ok */ }   // devolve o passo normal
           if (hideFly == 1) { Hide(); try { Opacity = 1; } catch { /* ok */ } Location = hideFlyFrom; hideFly = 2; }
           else { try { Opacity = 1; } catch { /* ok */ } hideFly = 0; }
         }
@@ -225,10 +227,14 @@ class FanoutHud : Form {
   void PlaceTick() {
     // "ESCONDER TODAS" (botao flutuante) com SUCÇÃO: mesmo contrato da telinha de sessao
     bool esconder = HudLayout.IsHidden();
-    if (esconder && hideFly == 0 && Visible && !morphing) { hideFly = 1; hideFlyT0 = NowMs(); hideFlyFrom = Location; }
+    if (esconder && hideFly == 0 && Visible && !morphing) {
+      hideFly = 1; hideFlyT0 = NowMs(); hideFlyFrom = Location;
+      try { animTimer.Interval = 8; } catch { /* ok */ }        // voo a ~120fps (padrao dos one-shots)
+    }
     if (!esconder && hideFly == 2) {
       hideFly = 3; hideFlyT0 = NowMs();
       try { Opacity = 0; } catch { /* ok */ }
+      try { animTimer.Interval = 8; } catch { /* ok */ }
       Location = BtnPoint(); Show();
     }
     if (hideFly != 0) { if (!userMoved) HudLayout.Touch(pid); return; }   // voo/escondida: o animTimer conduz
