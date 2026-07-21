@@ -89,6 +89,7 @@ class JarvisHudWF : Form {
   // SUCÇÃO (v1.6.1): ao esconder, a janela VOA ate o botao desvanecendo; ao mostrar, renasce
   // no botao e voa de volta. 0=normal · 1=voando pro botao · 2=escondida · 3=voando de volta.
   int hideFly = 0; long hideFlyT0 = 0; Point hideFlyFrom;
+  bool birthHidden = false;   // v1.7.0: nasceu ja sugada (some sem voo no 1o tick; revela voando do botao)
   Point BtnPoint() {
     Rectangle b;
     if (HudLayout.ReadBtnPos(out b)) return new Point(b.X + b.Width - Width, b.Y);   // canto sup-dir da janela encosta no botao
@@ -268,6 +269,7 @@ class JarvisHudWF : Form {
     } else {
       Location = HudLayout.Place(pid, bornMs, W, H, false, false);
     }
+    if (HudLayout.BirthHidden()) { birthHidden = true; try { Opacity = 0; } catch { /* ok */ } }   // nasce SUGADA no botao (slot ja registrado acima -> a pilula conta)
     Beat();
     ReadMeta(); ReadFeed(); ReadModel();
     heat = fable ? 1 : 0; inTrans = false;   // a janela ABRE ja no modo certo, sem transicao
@@ -368,10 +370,17 @@ class JarvisHudWF : Form {
     // marcador removido -> renasce no botao e voa de volta pro lugar. Janela arrastada
     // esconde tambem (sem Touch: o slot foi Released e o Touch o recriaria no dock).
     bool esconder = HudLayout.IsHidden();
+    if (esconder && hideFly == 0 && birthHidden && Visible && !morphing && !booting) {
+      // recem-nascida no modo "dentro do botao": some SEM voo (nunca chegou a aparecer;
+      // Opacity=0 desde o construtor) — mas guarda o posto pra voar DO botao ao revelar
+      birthHidden = false; hideFlyFrom = Location; hideFly = 2;
+      Hide(); try { Opacity = 1; } catch { /* ok */ }
+    }
     if (esconder && hideFly == 0 && Visible && !morphing && !booting) {
       hideFly = 1; hideFlyT0 = NowMs(); hideFlyFrom = Location;
       try { animTimer.Interval = 8; } catch { /* ok */ }        // voo a ~120fps (padrao dos one-shots, como o desligamento)
     }
+    if (!esconder && birthHidden) { birthHidden = false; try { Opacity = 1; } catch { /* ok */ } }   // revelaram antes do 1o tick: segue visivel normal
     if (!esconder && hideFly == 2) {
       hideFly = 3; hideFlyT0 = NowMs();
       try { Opacity = 0; } catch { /* ok */ }

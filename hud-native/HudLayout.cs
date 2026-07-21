@@ -211,6 +211,38 @@ static class HudLayout {
     return false;
   }
 
+  // ---- NASCER SUGADA NO BOTAO (v1.7.0, opt-in start-hidden.flag / JARVIS_HUD_START_HIDDEN):
+  // o repouso padrao e TUDO dentro do botao. Janela nova nasce invisivel (o marcador
+  // .hideall e armado no nascimento) e a pilula conta. Quando o usuario REVELA pelo botao,
+  // grava-se .revealed: enquanto ele existir, janelas novas nascem visiveis (modo revelado);
+  // re-esconder apaga o .revealed. Dock esvaziando, o botao limpa os dois -> a proxima
+  // manha recomeca no padrao: tudo no botao. ----
+  public static bool WantStartHidden() {
+    try {
+      string v = Environment.GetEnvironmentVariable("JARVIS_HUD_START_HIDDEN");
+      if (v != null) {
+        v = v.Trim().ToLowerInvariant();
+        if (v == "1" || v == "true" || v == "yes" || v == "on") return true;
+        if (v == "0" || v == "false" || v == "no" || v == "off") return false;
+      }
+    } catch {}
+    try {
+      string exeDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+      if (File.Exists(Path.Combine(exeDir, "start-hidden.flag"))) return true;
+    } catch {}
+    return false;
+  }
+  static string RevealedPath() { return Path.Combine(Dir(), ".revealed"); }
+  public static void SetRevealed() { try { File.WriteAllText(RevealedPath(), Now().ToString()); } catch {} }
+  public static void ClearRevealed() { try { string f = RevealedPath(); if (File.Exists(f)) File.Delete(f); } catch {} }
+  public static bool IsRevealed() { try { return File.Exists(RevealedPath()); } catch { return false; } }
+  // chamada no NASCIMENTO da janela: arma o esconderijo se o padrao e "dentro do botao"
+  public static bool BirthHidden() {
+    if (!WantStartHidden() || IsRevealed()) return false;
+    SetHidden();
+    return true;
+  }
+
   // ---- "ESCONDER TODAS" (v1.6.0): estado compartilhado alternado pelo BOTAO flutuante.
   // Marcador .hideall presente => TODAS as telinhas se escondem (Hide(); slot/heartbeat
   // continuam vivos, entao a posicao e o proprio botao ficam preservados); ausente =>
@@ -464,7 +496,7 @@ public class MinAllButton : Form {
     } else {
       if (Visible) Hide();
       if (emptySince == 0) emptySince = now;
-      else if (now - emptySince > 60000) { HudLayout.ClearHidden(); Close(); }   // dock vazio ha 1min: encerra SEM deixar telinha nova nascer escondida
+      else if (now - emptySince > 60000) { HudLayout.ClearHidden(); HudLayout.ClearRevealed(); Close(); }   // dock vazio ha 1min: encerra e RESETA o modo (a proxima manha recomeca no padrao)
     }
   }
 
@@ -472,7 +504,10 @@ public class MinAllButton : Form {
   protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
   protected override void OnMouseDown(MouseEventArgs e) {
     if (e.Button == MouseButtons.Left) {
-      if (HudLayout.IsHidden()) HudLayout.ClearHidden(); else HudLayout.SetHidden();   // interruptor
+      // interruptor + memoria do modo: revelado (janela nova nasce visivel) vs padrao
+      // "dentro do botao" (com start-hidden.flag, janela nova nasce sugada)
+      if (HudLayout.IsHidden()) { HudLayout.ClearHidden(); HudLayout.SetRevealed(); }
+      else { HudLayout.SetHidden(); HudLayout.ClearRevealed(); }
       flash = 1; ApplyShape(); Invalidate();
     }
     base.OnMouseDown(e);

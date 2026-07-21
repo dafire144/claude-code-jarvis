@@ -2,6 +2,12 @@
 
 Every installed Jarvis announces new versions by voice (daily check). Update in place with `node update.mjs`.
 
+## 1.7.0 — 2026-07-20 · Born inside the button
+
+- New opt-in mode (`hud-native/start-hidden.flag` or `JARVIS_HUD_START_HIDDEN=1`): **windows are born already sucked into the toggle button** — no capsule appears, the pill's count just ticks up. Your screen stays clean by default; one click pours every session out, one click tucks them back.
+- The mode remembers your choice: after you reveal, new windows are born visible; after you hide again (or the dock empties), newborns go back to arriving inside the button.
+- Zero flash at birth (windows spawn fully transparent before tucking in), and revealed newborns still fly out of the button like everything else.
+
 ## 1.6.2 — 2026-07-20 · Suction, buttery
 
 - The suction flight now runs at **~120 fps** (it was riding the idle 30 fps timer — hence the reported choppiness), same high-resolution one-shot treatment the shutdown cinematic gets.

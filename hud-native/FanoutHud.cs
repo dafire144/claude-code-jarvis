@@ -71,6 +71,7 @@ class FanoutHud : Form {
   protected override bool ShowWithoutActivation { get { return true; } }   // reaparecer do "esconder todas" nao rouba o foco
   // SUCÇÃO (v1.6.1): mesmo contrato da telinha de sessao (voa ate o botao / volta dele)
   int hideFly = 0; long hideFlyT0 = 0; Point hideFlyFrom;
+  bool birthHidden = false;   // v1.7.0: nasceu ja sugada no botao
   Point BtnPoint() {
     Rectangle b;
     if (HudLayout.ReadBtnPos(out b)) return new Point(b.X + b.Width - Width, b.Y);
@@ -136,6 +137,7 @@ class FanoutHud : Form {
     } else {
       Location = HudLayout.Place(pid, bornMs, W, H, false, false);
     }
+    if (HudLayout.BirthHidden()) { birthHidden = true; try { Opacity = 0; } catch { /* ok */ } }   // nasce SUGADA no botao
 
     dataTimer = new WinTimer(); dataTimer.Interval = 1000;
     dataTimer.Tick += delegate { DataTick(); };
@@ -227,10 +229,15 @@ class FanoutHud : Form {
   void PlaceTick() {
     // "ESCONDER TODAS" (botao flutuante) com SUCÇÃO: mesmo contrato da telinha de sessao
     bool esconder = HudLayout.IsHidden();
+    if (esconder && hideFly == 0 && birthHidden && Visible && !morphing) {
+      birthHidden = false; hideFlyFrom = Location; hideFly = 2;   // recem-nascida: some sem voo (nunca apareceu)
+      Hide(); try { Opacity = 1; } catch { /* ok */ }
+    }
     if (esconder && hideFly == 0 && Visible && !morphing) {
       hideFly = 1; hideFlyT0 = NowMs(); hideFlyFrom = Location;
       try { animTimer.Interval = 8; } catch { /* ok */ }        // voo a ~120fps (padrao dos one-shots)
     }
+    if (!esconder && birthHidden) { birthHidden = false; try { Opacity = 1; } catch { /* ok */ } }   // revelaram antes do 1o tick
     if (!esconder && hideFly == 2) {
       hideFly = 3; hideFlyT0 = NowMs();
       try { Opacity = 0; } catch { /* ok */ }
